@@ -183,6 +183,7 @@
                 <div class="upload-icon">📤</div>
                 <h2>Glissez vos PDF ici</h2>
                 <p>ou cliquez pour sélectionner des fichiers</p>
+                <p style="color: #667eea; font-weight: 600; margin-top: 10px;">Minimum 2 PDF - Maximum 10 PDF</p>
                 <input type="file" id="fileInput" multiple accept=".pdf">
             </div>
 
@@ -195,7 +196,6 @@
 
             <div class="buttons">
                 <button id="mergeBtn" disabled>🔗 Fusionner les PDF</button>
-                <!-- <button id="clearBtn" disabled>🗑️ Tout effacer</button> -->
             </div>
 
             <div id="status" class="status hidden"></div>
@@ -204,6 +204,8 @@
     </div>
 
     <script>
+        const MIN_FILES = 2;
+        const MAX_FILES = 10;
         let uploadedFiles = [];
         let mergedFileName = null;
         let downloadName = null;
@@ -212,7 +214,6 @@
         const fileInput = document.getElementById('fileInput');
         const fileList = document.getElementById('fileList');
         const mergeBtn = document.getElementById('mergeBtn');
-        const clearBtn = document.getElementById('clearBtn');
         const status = document.getElementById('status');
         const loader = document.getElementById('loader');
 
@@ -240,6 +241,14 @@
         async function handleFiles(files) {
             const formData = new FormData();
 
+            // Vérifier le nombre total de fichiers après ajout
+            const totalFiles = uploadedFiles.length + files.length;
+
+            if (totalFiles > MAX_FILES) {
+                showStatus(`Maximum ${MAX_FILES} fichiers autorisés. Vous avez déjà ${uploadedFiles.length} fichier(s).`, 'error');
+                return;
+            }
+
             for (let file of files) {
                 if (file.type === 'application/pdf') {
                     formData.append('files[]', file);
@@ -259,7 +268,7 @@
                 if (data.files) {
                     uploadedFiles = uploadedFiles.concat(data.files);
                     displayFiles();
-                    showStatus('Fichiers uploadés avec succès !', 'success');
+                    showStatus(`Fichiers uploadés avec succès ! (${uploadedFiles.length}/${MAX_FILES})`, 'success');
                 }
             } catch (error) {
                 showStatus('Erreur lors de l\'upload : ' + error.message, 'error');
@@ -281,8 +290,15 @@
                 fileList.appendChild(fileItem);
             });
 
-            mergeBtn.disabled = uploadedFiles.length < 2;
-            clearBtn.disabled = uploadedFiles.length === 0;
+            // Activer le bouton merge seulement si entre MIN et MAX fichiers
+            mergeBtn.disabled = uploadedFiles.length < MIN_FILES || uploadedFiles.length > MAX_FILES;
+
+            // Afficher un message d'info
+            if (uploadedFiles.length > 0 && uploadedFiles.length < MIN_FILES) {
+                showStatus(`Ajoutez encore ${MIN_FILES - uploadedFiles.length} fichier(s) pour fusionner`, 'error');
+            } else if (uploadedFiles.length >= MIN_FILES && uploadedFiles.length <= MAX_FILES) {
+                showStatus(`${uploadedFiles.length} fichier(s) prêt(s) à fusionner`, 'success');
+            }
         }
 
         function removeFile(index) {
@@ -327,17 +343,6 @@
                 showStatus('Erreur lors de la fusion : ' + error.message, 'error');
             } finally {
                 hideLoader();
-            }
-        });
-
-        clearBtn.addEventListener('click', async () => {
-            if (confirm('Êtes-vous sûr de vouloir tout effacer ?')) {
-                await fetch('/clear', { method: 'POST' });
-                uploadedFiles = [];
-                mergedFileName = null;
-                downloadName = null;
-                displayFiles();
-                status.classList.add('hidden');
             }
         });
 

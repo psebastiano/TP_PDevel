@@ -9,6 +9,8 @@ app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024  # 50MB max
 app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
+app.config['MIN_FILES'] = 2
+app.config['MAX_FILES'] = 10
 
 
 def allowed_file(filename):
@@ -37,7 +39,10 @@ def upload_files():
             file.save(filepath)
             uploaded_files.append({'name': filename, 'path': unique_filename})
 
-    return jsonify({'files': uploaded_files})
+    return jsonify({
+        'files': uploaded_files,
+        'maxFiles': app.config['MAX_FILES']
+    })
 
 
 @app.route('/merge', methods=['POST'])
@@ -51,8 +56,12 @@ def merge_pdfs():
     if not output_name:
         output_name = 'merged'
 
-    if not file_paths:
-        return jsonify({'error': 'Aucun fichier à fusionner'}), 400
+    # Vérifier le nombre de fichiers
+    if len(file_paths) < app.config['MIN_FILES']:
+        return jsonify({'error': f'Minimum {app.config["MIN_FILES"]} fichiers requis'}), 400
+
+    if len(file_paths) > app.config['MAX_FILES']:
+        return jsonify({'error': f'Maximum {app.config["MAX_FILES"]} fichiers autorisés'}), 400
 
     try:
         merger = PdfMerger()
@@ -83,22 +92,11 @@ def merge_pdfs():
 
 @app.route('/download/<filename>')
 def download_file(filename):
+    download_name = request.args.get('name', filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     if os.path.exists(filepath):
-        return send_file(filepath, as_attachment=True, download_name=filename)
+        return send_file(filepath, as_attachment=True, download_name=download_name)
     return jsonify({'error': 'Fichier non trouvé'}), 404
-
-
-""" @app.route('/clear', methods=['POST'])
-def clear_files():
-    try:
-        for filename in os.listdir(app.config['UPLOAD_FOLDER']):
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            if os.path.isfile(filepath):
-                os.remove(filepath)
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500 """
 
 
 if __name__ == '__main__':
