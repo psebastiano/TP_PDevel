@@ -89,7 +89,7 @@ def download_file(filename):
     return jsonify({'error': 'Fichier non trouvé'}), 404
 
 
-@app.route('/clear', methods=['POST'])
+""" @app.route('/clear', methods=['POST'])
 def clear_files():
     try:
         for filename in os.listdir(app.config['UPLOAD_FOLDER']):
@@ -98,7 +98,7 @@ def clear_files():
                 os.remove(filepath)
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': str(e)}), 500 """
 
 
 if __name__ == '__main__':
