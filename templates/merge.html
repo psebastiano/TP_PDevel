@@ -10,23 +10,66 @@
         .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
         h1 { color: #333; text-align: center; }
 
-        .upload-area { border: 3px dashed #667eea; border-radius: 15px; padding: 30px; text-align: center; background: #f8f9ff; cursor: pointer; margin-bottom: 20px; }
-        .upload-area:hover { background: #eef0ff; }
+        /* Zone d'upload */
+        .upload-area { border: 3px dashed #667eea; border-radius: 15px; padding: 30px; text-align: center; background: #f8f9ff; cursor: pointer; margin-bottom: 20px; transition: 0.3s; }
+        .upload-area:hover { background: #eef0ff; border-color: #5a67d8; }
 
+        /* Liste des fichiers */
         .file-list { margin-top: 20px; }
-        .file-item { background: white; border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: grab; }
-        .drag-handle { margin-right: 15px; color: #aaa; cursor: grab; }
 
-        /* Nouveau style pour l'input du nom */
+        .file-item {
+            background: white;
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+
+            /* C'est ici que la magie opère pour le Drag & Drop sur toute la zone */
+            cursor: grab;
+            user-select: none; /* Empêche de sélectionner le texte pendant qu'on tire */
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        /* Style quand on attrape l'élément */
+        .file-item:active {
+            cursor: grabbing;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-color: #667eea;
+        }
+
+        /* Classe ajoutée automatiquement par SortableJS à l'élément fantôme */
+        .sortable-ghost {
+            opacity: 0.4;
+            background: #e8f5e9;
+            border: 2px dashed #2ecc71;
+        }
+
+        .file-info { display: flex; align-items: center; gap: 15px; pointer-events: none; /* Le clic traverse pour le drag */ }
+        .drag-icon { color: #ccc; font-size: 1.2em; }
+        .file-name { font-weight: 500; color: #333; }
+
+        /* Input Nom de sortie */
         .output-group { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
         .output-group label { font-weight: 600; display: block; margin-bottom: 10px; color: #555; }
         input[type="text"] { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em; box-sizing: border-box; }
 
-        button.action-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.1em; cursor: pointer; margin-top: 15px; }
-        button:disabled { background: #ccc; cursor: not-allowed; }
+        /* Boutons */
+        button.action-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.1em; cursor: pointer; margin-top: 15px; font-weight: 600; }
+        button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
 
         .result-area { margin-top: 20px; text-align: center; }
-        .download-btn { background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px; }
+        .download-btn { background: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; display: inline-block; margin-top: 10px; font-weight: bold; }
+
+        .remove-btn {
+            background: none; border: none; color: #ff4757; cursor: pointer; font-size: 1.2em; padding: 5px;
+            /* Important : on réactive les événements de souris pour le bouton supprimer */
+            pointer-events: auto;
+        }
+        .remove-btn:hover { color: #d63031; transform: scale(1.1); }
+
     </style>
 </head>
 <body>
@@ -36,6 +79,7 @@
 
         <div class="upload-area" onclick="document.getElementById('fileInput').click()">
             <h3>Cliquez ou glissez vos PDF ici</h3>
+            <p style="color:#666; font-size:0.9em;">(Réorganisez l'ordre en glissant les fichiers)</p>
             <input type="file" id="fileInput" multiple accept=".pdf" style="display: none;">
         </div>
 
@@ -55,23 +99,23 @@
         const listEl = document.getElementById('fileList');
         const uploadArea = document.querySelector('.upload-area');
         const fileInput = document.getElementById('fileInput');
+        const mergeBtn = document.getElementById('mergeBtn');
 
-        // Initialisation de SortableJS
-        new Sortable(listEl, { animation: 150, handle: '.drag-handle' });
+        // --- CONFIGURATION SORTABLE JS ---
+        // On a retiré "handle: .drag-handle" pour que tout l'élément soit draggable
+        new Sortable(listEl, {
+            animation: 150,
+            ghostClass: 'sortable-ghost' // Style visuel de l'élément en cours de déplacement
+        });
 
-        // --- GESTION DU DRAG & DROP ---
+        // --- GESTION DU DRAG & DROP FICHIERS ---
 
-        // Empêcher le navigateur d'ouvrir le fichier
         ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
             uploadArea.addEventListener(eventName, preventDefaults, false);
         });
 
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
 
-        // Effets visuels
         ['dragenter', 'dragover'].forEach(eventName => {
             uploadArea.addEventListener(eventName, () => uploadArea.style.background = '#eef0ff', false);
         });
@@ -80,33 +124,31 @@
             uploadArea.addEventListener(eventName, () => uploadArea.style.background = '#f8f9ff', false);
         });
 
-        // Gestion du DROP
         uploadArea.addEventListener('drop', (e) => {
-            const dt = e.dataTransfer;
-            const files = dt.files;
-            handleFiles(files);
+            handleFiles(e.dataTransfer.files);
         });
 
-        // Gestion du CLICK (Input classique)
         fileInput.addEventListener('change', (e) => {
             handleFiles(e.target.files);
         });
 
-        // --- LOGIQUE D'UPLOAD COMMUNE ---
+        // --- LOGIQUE ---
 
         async function handleFiles(files) {
             if (files.length === 0) return;
 
             const formData = new FormData();
+            let hasPdf = false;
             for(let file of files) {
                 if(file.type === 'application/pdf') {
                     formData.append('files[]', file);
+                    hasPdf = true;
                 }
             }
 
-            // Si aucun PDF valide n'est trouvé
-            if(!formData.has('files[]')) return;
+            if(!hasPdf) return;
 
+            // Envoi au serveur pour stockage temporaire
             const res = await fetch('/upload', { method: 'POST', body: formData });
             const data = await res.json();
 
@@ -114,50 +156,98 @@
                 uploadedFiles = [...uploadedFiles, ...data.files];
                 renderList();
             }
-            // Reset de l'input pour permettre de ré-uploader le même fichier si besoin
             fileInput.value = '';
         }
 
         function renderList() {
+            // Note: On ajoute les nouveaux fichiers à la fin, sans casser le DOM existant si possible
+            // Mais pour simplifier ici, on reconstruit la liste en se basant sur uploadedFiles.
+            // Cependant, si l'utilisateur a déjà trié, reconstruire va casser son tri.
+            // Astuce : On n'ajoute que les fichiers qui ne sont pas encore affichés.
+
+            dataFiles = uploadedFiles; // Simplification : on affiche tout.
+
+            // Pour respecter le tri, on ne devrait pas tout effacer à chaque fois si on voulait faire compliqué.
+            // Mais ici, l'ajout se fait toujours "à la suite".
+            // On va vider et recréer pour s'assurer que les nouveaux sont là.
+            // *Attention* : Si l'utilisateur ajoute des fichiers en deux fois, les anciens reviendront à leur position initiale.
+            // Si vous voulez éviter ça, il faudrait une logique plus complexe d'ajout au DOM.
+            // Pour l'instant, on reconstruit :
+
             listEl.innerHTML = '';
             uploadedFiles.forEach((file) => {
                 const item = document.createElement('div');
                 item.className = 'file-item';
-                item.dataset.path = file.path;
+                item.dataset.path = file.path; // Stockage du chemin serveur
                 item.innerHTML = `
-                    <div><span class="drag-handle">☰</span> <span class="file-name">${file.name}</span></div>
-                    <button onclick="removeFile('${file.path}')" style="background:none;border:none;color:red;cursor:pointer;">✖</button>
+                    <div class="file-info">
+                        <span class="drag-icon">☰</span>
+                        <span class="file-name">${file.name}</span>
+                    </div>
+                    <button class="remove-btn" onclick="removeFile('${file.path}', this)">✖</button>
                 `;
                 listEl.appendChild(item);
             });
-            document.getElementById('mergeBtn').disabled = uploadedFiles.length < 2;
+            updateMergeBtn();
         }
 
-        function removeFile(path) {
+        // Fonction pour supprimer un fichier de la liste
+        window.removeFile = function(path, btnElement) {
+            // Suppression visuelle immédiate (pas besoin de tout re-render)
+            const item = btnElement.closest('.file-item');
+            item.remove();
+
+            // Mise à jour du tableau en mémoire
             uploadedFiles = uploadedFiles.filter(f => f.path !== path);
-            renderList();
+            updateMergeBtn();
+
+            // Empêcher le clic de déclencher le drag (propagation)
+            event.stopPropagation();
         }
 
-        document.getElementById('mergeBtn').addEventListener('click', async () => {
+        function updateMergeBtn() {
+            // On compte les éléments présents dans le DOM
+            const count = document.querySelectorAll('.file-item').length;
+            mergeBtn.disabled = count < 2;
+        }
+
+        mergeBtn.addEventListener('click', async () => {
+            // Etape cruciale : On lit l'ordre depuis le DOM (l'ordre visuel)
             const domItems = document.querySelectorAll('.file-item');
             const orderedPaths = Array.from(domItems).map(item => item.dataset.path);
             const outputName = document.getElementById('outputName').value;
+            const resultDiv = document.getElementById('result');
 
-            const res = await fetch('/api/merge', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    files: orderedPaths,
-                    outputName: outputName
-                })
-            });
+            mergeBtn.disabled = true;
+            mergeBtn.innerText = "Fusion en cours...";
+            resultDiv.innerHTML = '';
 
-            const data = await res.json();
-            if(data.success) {
-                document.getElementById('result').innerHTML = `
-                    <p>✅ Fusion réussie !</p>
-                    <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-btn">⬇️ Télécharger ${data.downloadName}</a>
-                `;
+            try {
+                const res = await fetch('/api/merge', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        files: orderedPaths,
+                        outputName: outputName
+                    })
+                });
+
+                const data = await res.json();
+                if(data.success) {
+                    resultDiv.innerHTML = `
+                        <p style="color:green; font-weight:bold; margin-bottom:10px;">✅ Fusion réussie !</p>
+                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-btn">
+                            ⬇️ Télécharger le PDF
+                        </a>
+                    `;
+                } else {
+                    alert("Erreur: " + data.error);
+                }
+            } catch(e) {
+                alert("Erreur serveur");
+            } finally {
+                mergeBtn.disabled = false;
+                mergeBtn.innerText = "Fusionner les PDF";
             }
         });
     </script>

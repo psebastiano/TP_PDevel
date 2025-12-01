@@ -5,8 +5,14 @@ from PyPDF2 import PdfMerger, PdfReader, PdfWriter
 import tempfile
 from datetime import datetime
 
+# Nouveaux imports pour le dessin du texte
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+import zipfile
+
 app = Flask(__name__)
-# Utilisation d'un dossier temporaire système
+# Dossier temporaire système
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
@@ -16,11 +22,33 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 
+# --- FONCTION UTILITAIRE : GÉNÉRER LE FILIGRANE ---
+def create_text_watermark(text, output_path, width, height):
+    """Crée un PDF temporaire de la taille exacte demandée"""
+    # On s'assure que width/height sont des floats pour ReportLab
+    w = float(width)
+    h = float(height)
+
+    c = canvas.Canvas(output_path, pagesize=(w, h))
+
+    # On se place au centre exact de CETTE page
+    c.translate(w / 2, h / 2)
+    c.rotate(45)
+
+    # On adapte légèrement la taille de police selon la largeur de page
+    # (Base 60 pour une largeur d'environ 600 points)
+    font_size = 60 * (w / 600.0)
+    c.setFont("Helvetica-Bold", font_size)
+
+    c.setFillColor(colors.grey, alpha=0.5)
+    c.drawCentredString(0, 0, text)
+    c.save()
+
+
 # --- ROUTES D'INTERFACE (HTML) ---
 
 @app.route('/')
 def home():
-    """Page d'accueil avec le choix des outils"""
     return render_template('home.html')
 
 
@@ -29,81 +57,17 @@ def watermark_interface():
     return render_template('watermark.html')
 
 
-@app.route('/api/watermark', methods=['POST'])
-def watermark_action():
-    # 1. Vérifier la présence des deux fichiers
-    if 'file' not in request.files or 'watermark_file' not in request.files:
-        return jsonify({'error': 'Veuillez fournir le document ET le fichier filigrane'}), 400
-
-    source_file = request.files['file']
-    watermark_file = request.files['watermark_file']
-    output_name_user = request.form.get('outputName', '').strip()
-
-    if source_file and allowed_file(source_file.filename) and watermark_file and allowed_file(watermark_file.filename):
-        try:
-            # 2. Sauvegarde temporaire
-            source_filename = secure_filename(source_file.filename)
-            watermark_filename = secure_filename(watermark_file.filename)
-
-            source_path = os.path.join(app.config['UPLOAD_FOLDER'], f"src_{source_filename}")
-            watermark_path = os.path.join(app.config['UPLOAD_FOLDER'], f"wm_{watermark_filename}")
-
-            source_file.save(source_path)
-            watermark_file.save(watermark_path)
-
-            # 3. Lecture des fichiers
-            source_reader = PdfReader(source_path)
-            watermark_reader = PdfReader(watermark_path)
-
-            # On prend la première page du PDF filigrane comme modèle
-            watermark_page = watermark_reader.pages[0]
-
-            writer = PdfWriter()
-
-            # 4. Application du filigrane sur chaque page
-            for page in source_reader.pages:
-                # merge_page superpose la page donnée (watermark) sur la page actuelle
-                page.merge_page(watermark_page)
-                writer.add_page(page)
-
-            # 5. Gestion du nom de sortie
-            if not output_name_user:
-                output_name_user = f"watermarked_{source_filename}"
-            else:
-                if not output_name_user.lower().endswith('.pdf'):
-                    output_name_user += '.pdf'
-                output_name_user = secure_filename(output_name_user)
-
-            output_filename = f"{datetime.now().strftime('%H%M%S')}_{output_name_user}"
-            output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
-
-            with open(output_path, "wb") as f:
-                writer.write(f)
-
-            return jsonify({
-                'success': True,
-                'filename': output_filename,
-                'downloadName': output_name_user
-            })
-
-        except Exception as e:
-            return jsonify({'error': str(e)}), 500
-
-    return jsonify({'error': 'Fichiers invalides'}), 400
-
 @app.route('/tool/merge')
 def merge_interface():
-    """Interface de fusion"""
     return render_template('merge.html')
 
 
 @app.route('/tool/split')
 def split_interface():
-    """Interface de division"""
     return render_template('split.html')
 
 
-# --- ROUTES API  ---
+# --- ROUTES API ---
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
@@ -116,12 +80,10 @@ def upload_files():
     for file in files:
         if file and allowed_file(file.filename):
             filename = secure_filename(file.filename)
-            # Timestamp pour éviter les écrasements
             unique_filename = f"{datetime.now().strftime('%H%M%S')}_{filename}"
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
             file.save(filepath)
 
-            # On renvoie le path sécurisé pour le traitement suivant
             uploaded_files.append({
                 'name': filename,
                 'path': unique_filename
@@ -133,7 +95,7 @@ def upload_files():
 @app.route('/api/merge', methods=['POST'])
 def merge_action():
     data = request.json
-    file_paths = data.get('files', [])  # L'ordre ici sera celui défini par le front
+    file_paths = data.get('files', [])
     output_name = secure_filename(data.get('outputName', 'merged')) or 'merged'
 
     if len(file_paths) < 2:
@@ -160,14 +122,11 @@ def merge_action():
         return jsonify({'error': str(e)}), 500
 
 
-# ... Imports et config inchangés ...
-
 @app.route('/api/split', methods=['POST'])
 def split_action():
     data = request.json
     filename = data.get('filename')
     split_page = int(data.get('splitPage', 1))
-    # Nouveau : Récupérer le nom choisi par l'utilisateur
     output_prefix = data.get('outputPrefix', 'split')
     output_prefix = secure_filename(output_prefix) or 'split'
 
@@ -190,12 +149,8 @@ def split_action():
             writer2.add_page(reader.pages[i])
 
         timestamp = datetime.now().strftime('%H%M%S')
-
-        # Noms de fichiers internes (pour le stockage unique)
         internal_name1 = f"{output_prefix}_part1_{timestamp}.pdf"
         internal_name2 = f"{output_prefix}_part2_{timestamp}.pdf"
-
-        # Noms de fichiers pour le téléchargement (ce que l'utilisateur verra)
         download_name1 = f"{output_prefix}_part1.pdf"
         download_name2 = f"{output_prefix}_part2.pdf"
 
@@ -214,6 +169,110 @@ def split_action():
                 {'filename': internal_name2, 'downloadName': download_name2, 'label': f'Télécharger {download_name2}'}
             ]
         })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# --- NOUVELLE ROUTE FILIGRANE (TEXTE) ---
+@app.route('/api/watermark', methods=['POST'])
+def watermark_action():
+    if 'files[]' not in request.files:
+        return jsonify({'error': 'Veuillez fournir au moins un fichier PDF'}), 400
+
+    files = request.files.getlist('files[]')
+    watermark_text = request.form.get('watermarkText', 'CONFIDENTIEL').strip()
+    output_name_user = request.form.get('outputName', '').strip()
+
+    if not files:
+        return jsonify({'error': 'Aucun fichier reçu'}), 400
+
+    processed_files = []
+    timestamp_global = datetime.now().strftime('%H%M%S')
+
+    try:
+        for index, file in enumerate(files):
+            if file and allowed_file(file.filename):
+                # 1. Sauvegarde du fichier source
+                filename = secure_filename(file.filename)
+                source_path = os.path.join(app.config['UPLOAD_FOLDER'], f"src_{index}_{timestamp_global}_{filename}")
+                file.save(source_path)
+
+                # 2. Analyse de la taille de la première page du PDF
+                source_reader = PdfReader(source_path)
+                first_page = source_reader.pages[0]
+
+                # Récupération des dimensions (MediaBox)
+                page_width = first_page.mediabox.width
+                page_height = first_page.mediabox.height
+
+                # 3. Création d'un filigrane SPÉCIFIQUE à ce fichier (bonne taille)
+                watermark_pdf_name = f"wm_temp_{index}_{timestamp_global}.pdf"
+                watermark_path = os.path.join(app.config['UPLOAD_FOLDER'], watermark_pdf_name)
+
+                # On passe les dimensions détectées
+                create_text_watermark(watermark_text, watermark_path, page_width, page_height)
+
+                # 4. Fusion
+                watermark_reader = PdfReader(watermark_path)
+                watermark_page = watermark_reader.pages[0]
+                writer = PdfWriter()
+
+                for page in source_reader.pages:
+                    # PyPDF2 superpose les pages. Si elles font la même taille, le centre s'aligne.
+                    page.merge_page(watermark_page)
+                    writer.add_page(page)
+
+                # 5. Écriture du résultat
+                output_filename = f"WM_{filename}"
+                output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"out_{index}_{timestamp_global}_{filename}")
+
+                with open(output_path, "wb") as f:
+                    writer.write(f)
+
+                processed_files.append({
+                    'path': output_path,
+                    'download_name': output_filename
+                })
+
+        # --- Fin de la boucle, gestion du retour ---
+
+        if not processed_files:
+            return jsonify({'error': 'Aucun fichier valide traité'}), 400
+
+        # Cas A : Un seul fichier
+        if len(processed_files) == 1:
+            final_file = processed_files[0]
+            dl_name = final_file['download_name']
+            if output_name_user:
+                dl_name = output_name_user if output_name_user.lower().endswith('.pdf') else output_name_user + '.pdf'
+
+            return jsonify({
+                'success': True,
+                'filename': os.path.basename(final_file['path']),
+                'downloadName': dl_name,
+                'type': 'single'
+            })
+
+        # Cas B : ZIP
+        else:
+            zip_name = output_name_user if output_name_user else "documents_filigranes"
+            if not zip_name.lower().endswith('.zip'):
+                zip_name += '.zip'
+
+            zip_filename_internal = f"batch_{timestamp_global}.zip"
+            zip_path = os.path.join(app.config['UPLOAD_FOLDER'], zip_filename_internal)
+
+            with zipfile.ZipFile(zip_path, 'w') as zipf:
+                for p_file in processed_files:
+                    zipf.write(p_file['path'], p_file['download_name'])
+
+            return jsonify({
+                'success': True,
+                'filename': zip_filename_internal,
+                'downloadName': zip_name,
+                'type': 'zip'
+            })
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500

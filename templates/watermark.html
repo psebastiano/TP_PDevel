@@ -2,30 +2,88 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Appliquer un Filigrane</title>
+    <title>Filigrane de Masse</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
         .container { max-width: 700px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
         .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
         h1 { text-align: center; color: #333; margin-bottom: 30px; }
 
-        .step-box { background: #f8f9fa; border: 2px dashed #ddd; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; transition: 0.3s; cursor: pointer; }
+        /* Zone de Drop (Upload) */
+        .step-box {
+            background: #f8f9fa;
+            border: 2px dashed #ddd;
+            padding: 30px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            transition: 0.3s;
+            cursor: pointer;
+        }
         .step-box:hover { border-color: #667eea; background: #f0f4ff; }
         .step-box.active { border-color: #2ecc71; background: #e8f5e9; }
+        .step-title { font-weight: bold; display: block; margin-bottom: 10px; color: #555; }
 
-        .step-title { font-weight: bold; display: block; margin-bottom: 5px; color: #555; }
-        .file-name { color: #2ecc71; font-weight: 600; font-size: 0.9em; }
+        /* Liste des fichiers (Zone de Tri) */
+        .file-list { text-align: left; margin-top: 20px; }
 
-        .form-group { margin-top: 20px; }
+        .file-item {
+            background: white;
+            border: 1px solid #e0e0e0;
+            padding: 12px 15px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+
+            /* Drag sur tout le rectangle */
+            cursor: grab;
+            user-select: none; /* Empêche la sélection de texte pendant le drag */
+            transition: transform 0.2s, box-shadow 0.2s;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+
+        /* Style quand on déplace */
+        .file-item:active {
+            cursor: grabbing;
+            border-color: #667eea;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        /* Style de l'élément fantôme (placeholder) */
+        .sortable-ghost {
+            opacity: 0.4;
+            background: #e0e7ff;
+            border: 2px dashed #667eea;
+        }
+
+        .file-info { display: flex; align-items: center; gap: 15px; pointer-events: none; /* Le clic traverse le texte */ }
+        .drag-icon { color: #ccc; font-size: 1.2em; }
+        .file-name { color: #333; font-weight: 500; font-size: 0.95em; }
+
+        /* Bouton supprimer */
+        .remove-btn {
+            background: none; border: none; color: #ff4757; cursor: pointer; font-size: 1.2em; padding: 5px;
+            pointer-events: auto; /* Important : réactive le clic sur ce bouton */
+        }
+        .remove-btn:hover { color: #d63031; transform: scale(1.1); }
+
+        /* Zone de Texte */
+        .input-text-zone { margin-top: 20px; background: #fff; padding: 20px; border: 1px solid #eee; border-radius: 10px; }
+        .form-group { margin-bottom: 15px; }
         label { display: block; margin-bottom: 8px; font-weight: 600; color: #555; }
         input[type="text"] { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em; box-sizing: border-box; }
+
+        #watermarkText { border-color: #667eea; font-weight: bold; color: #444; text-align: center; letter-spacing: 1px; }
 
         button.action-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.1em; cursor: pointer; font-weight: 600; margin-top: 20px; }
         button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
 
         .loader { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
         .download-zone { text-align: center; margin-top: 20px; display: none; }
         .download-link { background: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; display: inline-block; }
     </style>
@@ -33,79 +91,165 @@
 <body>
     <a href="/" class="back-link">← Retour Accueil</a>
     <div class="container">
-        <h1>©️ Appliquer un Filigrane PDF</h1>
-        <p style="text-align: center; color: #666; margin-bottom: 30px;">Superposez un PDF (logo, texte) sur votre document.</p>
+        <h1>©️ Appliquer un Filigrane (Batch)</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">Traitez plusieurs fichiers. Réorganisez-les en glissant les rectangles.</p>
 
-        <div class="step-box" onclick="document.getElementById('sourceInput').click()">
-            <span class="step-title">1. Choisissez le document principal</span>
-            <span id="sourceName">Cliquez pour upload</span>
-            <input type="file" id="sourceInput" accept=".pdf" style="display: none;">
+        <div class="step-box" id="dropZoneSource" onclick="document.getElementById('sourceInput').click()">
+            <span class="step-title">1. Cliquez ou Glissez vos PDF ici</span>
+            <input type="file" id="sourceInput" accept=".pdf" multiple style="display: none;">
         </div>
 
-        <div class="step-box" onclick="document.getElementById('watermarkInput').click()">
-            <span class="step-title">2. Choisissez le fichier Filigrane (PDF)</span>
-            <span id="watermarkName">Cliquez pour upload</span>
-            <input type="file" id="watermarkInput" accept=".pdf" style="display: none;">
+        <div id="fileListDisplay" class="file-list"></div>
+
+        <div class="input-text-zone">
+            <div class="form-group">
+                <label>2. Texte du filigrane :</label>
+                <input type="text" id="watermarkText" value="CONFIDENTIEL" placeholder="Entrez votre texte ici...">
+            </div>
+
+            <div class="form-group">
+                <label>Nom du fichier final (ou du ZIP) :</label>
+                <input type="text" id="outputName" placeholder="Ex: mes_documents_signés">
+            </div>
         </div>
 
-        <div class="form-group">
-            <label>Nom du fichier de sortie (Optionnel) :</label>
-            <input type="text" id="outputName" placeholder="Ex: document_final_logo">
-        </div>
-
-        <button id="processBtn" class="action-btn" disabled onclick="processWatermark()">Fusionner et Appliquer</button>
+        <button id="processBtn" class="action-btn" disabled onclick="processWatermark()">Appliquer le texte</button>
 
         <div id="loader" class="loader"></div>
         <div id="result" class="download-zone"></div>
     </div>
 
     <script>
-        let sourceFile = null;
-        let watermarkFile = null;
+        // On utilise un Map pour stocker les fichiers : ID_Unique -> Fichier Object
+        let fileMap = new Map();
 
-        function updateUI() {
-            const btn = document.getElementById('processBtn');
-            if (sourceFile && watermarkFile) {
-                btn.disabled = false;
-                btn.innerHTML = "Appliquer le filigrane";
+        const dropZone = document.getElementById('dropZoneSource');
+        const fileInput = document.getElementById('sourceInput');
+        const processBtn = document.getElementById('processBtn');
+        const listDisplay = document.getElementById('fileListDisplay');
+
+        // Initialisation de SortableJS sur la liste
+        // On a retiré l'option 'handle' pour permettre le drag sur tout l'élément
+        new Sortable(listDisplay, {
+            animation: 150,
+            ghostClass: 'sortable-ghost'
+        });
+
+        // --- GESTION DRAG & DROP UI (Upload) ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+            }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.style.background = '#e0e7ff', false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.style.background = '#f8f9fa', false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const files = e.dataTransfer.files;
+            handleFiles(files);
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            handleFiles(e.target.files);
+            fileInput.value = ''; // Reset
+        });
+
+        function handleFiles(files) {
+            let addedCount = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                if (files[i].type === 'application/pdf') {
+                    // Création d'un ID unique pour ce fichier
+                    const fileId = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+
+                    // Stockage dans la mémoire
+                    fileMap.set(fileId, files[i]);
+
+                    // Création de l'élément visuel
+                    addFileToDOM(fileId, files[i].name);
+                    addedCount++;
+                }
+            }
+            updateButtonState();
+        }
+
+        function addFileToDOM(id, name) {
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.setAttribute('data-id', id); // On lie le DOM à l'ID du fichier
+
+            item.innerHTML = `
+                <div class="file-info">
+                    <span class="drag-icon">☰</span>
+                    <span class="file-name">${name}</span>
+                </div>
+                <button class="remove-btn" onclick="removeFile('${id}')">✖</button>
+            `;
+            listDisplay.appendChild(item);
+        }
+
+        // Fonction rendue globale pour être appelée par le onclick
+        window.removeFile = function(id) {
+            // Supprimer de la mémoire
+            fileMap.delete(id);
+            // Supprimer du visuel
+            const el = document.querySelector(`[data-id='${id}']`);
+            if (el) el.remove();
+
+            updateButtonState();
+
+            // Empêche la propagation du clic (ne pas lancer le drag)
+            if(event) event.stopPropagation();
+        }
+
+        function updateButtonState() {
+            const count = fileMap.size;
+            if (count > 0) {
+                dropZone.classList.add('active');
+                processBtn.disabled = false;
+                processBtn.innerText = `Appliquer sur ${count} fichier(s)`;
             } else {
-                btn.disabled = true;
+                dropZone.classList.remove('active');
+                processBtn.disabled = true;
+                processBtn.innerText = "Appliquer le texte";
             }
         }
 
-        document.getElementById('sourceInput').addEventListener('change', (e) => {
-            if(e.target.files.length > 0) {
-                sourceFile = e.target.files[0];
-                document.getElementById('sourceName').innerText = "✅ " + sourceFile.name;
-                document.getElementById('sourceName').className = "file-name";
-                e.target.parentElement.classList.add('active');
-                updateUI();
-            }
-        });
-
-        document.getElementById('watermarkInput').addEventListener('change', (e) => {
-            if(e.target.files.length > 0) {
-                watermarkFile = e.target.files[0];
-                document.getElementById('watermarkName').innerText = "✅ " + watermarkFile.name;
-                document.getElementById('watermarkName').className = "file-name";
-                e.target.parentElement.classList.add('active');
-                updateUI();
-            }
-        });
-
+        // --- ENVOI AU SERVEUR ---
         async function processWatermark() {
+            if(fileMap.size === 0) return;
+
+            const watermarkText = document.getElementById('watermarkText').value;
             const outputName = document.getElementById('outputName').value;
             const loader = document.getElementById('loader');
             const resultDiv = document.getElementById('result');
-            const btn = document.getElementById('processBtn');
 
+            processBtn.disabled = true;
+            processBtn.style.display = 'none';
             loader.style.display = 'block';
             resultDiv.style.display = 'none';
-            btn.disabled = true;
 
             const formData = new FormData();
-            formData.append('file', sourceFile);
-            formData.append('watermark_file', watermarkFile);
+
+            // 1. On parcourt le DOM pour respecter l'ordre visuel défini par l'utilisateur
+            const domItems = document.querySelectorAll('.file-item');
+
+            domItems.forEach(item => {
+                const id = item.getAttribute('data-id');
+                const file = fileMap.get(id);
+                if (file) {
+                    formData.append('files[]', file);
+                }
+            });
+
+            formData.append('watermarkText', watermarkText);
             formData.append('outputName', outputName);
 
             try {
@@ -116,21 +260,30 @@
                 const data = await res.json();
 
                 if(data.success) {
+                    let btnText = "⬇️ Télécharger le document";
+                    if (data.type === 'zip') {
+                        btnText = "⬇️ Télécharger l'archive ZIP";
+                    }
+
                     resultDiv.innerHTML = `
-                        <p style="color:green; font-weight:bold;">✅ Terminé !</p>
+                        <p style="color:green; font-weight:bold;">✅ Traitement terminé !</p>
                         <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-link">
-                            ⬇️ Télécharger le résultat
+                            ${btnText}
                         </a>
                     `;
                     resultDiv.style.display = 'block';
                 } else {
                     alert('Erreur: ' + data.error);
+                    processBtn.disabled = false;
+                    processBtn.style.display = 'block';
                 }
             } catch (e) {
+                console.error(e);
                 alert('Erreur technique');
+                processBtn.disabled = false;
+                processBtn.style.display = 'block';
             } finally {
                 loader.style.display = 'none';
-                btn.disabled = false;
             }
         }
     </script>
