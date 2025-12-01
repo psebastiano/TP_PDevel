@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Accueil - Outils PDF</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; color: white; }
+        .container { text-align: center; }
+        h1 { font-size: 3em; margin-bottom: 40px; text-shadow: 0 4px 10px rgba(0,0,0,0.2); }
+        .cards { display: flex; gap: 30px; justify-content: center; }
+        .card { background: white; color: #333; padding: 40px; border-radius: 20px; width: 250px; cursor: pointer; transition: transform 0.3s, box-shadow 0.3s; text-decoration: none; display: block; }
+        .card:hover { transform: translateY(-10px); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
+        .icon { font-size: 4em; margin-bottom: 20px; display: block; }
+        .title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; display: block; }
+        .desc { color: #666; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Outils PDF Intelligents</h1>
+        <div class="cards">
+            <a href="/tool/merge" class="card">
+                <span class="icon">🔗</span>
+                <span class="title">Fusionner</span>
+                <span class="desc">Combinez plusieurs PDF en un seul document ordonné.</span>
+            </a>
+            <a href="/tool/split" class="card">
+                <span class="icon">✂️</span>
+                <span class="title">Diviser</span>
+                <span class="desc">Séparez un PDF en deux parties à l'endroit de votre choix.</span>
+            </a>
+            <a href="/tool/watermark" class="card">
+                <span class="icon">©️</span>
+                <span class="title">Filigrane</span>
+                <span class="desc">Ajoutez du texte (Copyright, Confidentiel) sur vos pages.</span>
+            </a>
+        </div>
+    </div>
+</body>
+</html>

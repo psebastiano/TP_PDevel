@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Fusionner PDF</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
+        h1 { color: #333; text-align: center; }
+
+        .upload-area { border: 3px dashed #667eea; border-radius: 15px; padding: 30px; text-align: center; background: #f8f9ff; cursor: pointer; margin-bottom: 20px; }
+        .upload-area:hover { background: #eef0ff; }
+
+        .file-list { margin-top: 20px; }
+        .file-item { background: white; border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; cursor: grab; }
+        .drag-handle { margin-right: 15px; color: #aaa; cursor: grab; }
+
+        /* Nouveau style pour l'input du nom */
+        .output-group { margin-top: 30px; padding-top: 20px; border-top: 1px solid #eee; }
+        .output-group label { font-weight: 600; display: block; margin-bottom: 10px; color: #555; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em; box-sizing: border-box; }
+
+        button.action-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.1em; cursor: pointer; margin-top: 15px; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+
+        .result-area { margin-top: 20px; text-align: center; }
+        .download-btn { background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin-top: 10px; }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Retour Accueil</a>
+    <div class="container">
+        <h1>🔗 Fusionner des PDF</h1>
+
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <h3>Cliquez ou glissez vos PDF ici</h3>
+            <input type="file" id="fileInput" multiple accept=".pdf" style="display: none;">
+        </div>
+
+        <div class="file-list" id="fileList"></div>
+
+        <div class="output-group">
+            <label>Nom du fichier final :</label>
+            <input type="text" id="outputName" placeholder="Ex: rapport_complet">
+        </div>
+
+        <button id="mergeBtn" class="action-btn" disabled>Fusionner les PDF</button>
+        <div id="result" class="result-area"></div>
+    </div>
+
+    <script>
+        let uploadedFiles = [];
+        const listEl = document.getElementById('fileList');
+        new Sortable(listEl, { animation: 150, handle: '.drag-handle' });
+
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const formData = new FormData();
+            for(let file of e.target.files) formData.append('files[]', file);
+
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if(data.files) {
+                uploadedFiles = [...uploadedFiles, ...data.files];
+                renderList();
+            }
+        });
+
+        function renderList() {
+            listEl.innerHTML = '';
+            uploadedFiles.forEach((file) => {
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                item.dataset.path = file.path;
+                item.innerHTML = `
+                    <div><span class="drag-handle">☰</span> <span class="file-name">${file.name}</span></div>
+                    <button onclick="removeFile('${file.path}')" style="background:none;border:none;color:red;cursor:pointer;">✖</button>
+                `;
+                listEl.appendChild(item);
+            });
+            document.getElementById('mergeBtn').disabled = uploadedFiles.length < 2;
+        }
+
+        function removeFile(path) {
+            uploadedFiles = uploadedFiles.filter(f => f.path !== path);
+            renderList();
+        }
+
+        document.getElementById('mergeBtn').addEventListener('click', async () => {
+            const domItems = document.querySelectorAll('.file-item');
+            const orderedPaths = Array.from(domItems).map(item => item.dataset.path);
+            const outputName = document.getElementById('outputName').value; // Récupération du nom
+
+            const res = await fetch('/api/merge', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    files: orderedPaths,
+                    outputName: outputName // Envoi au backend
+                })
+            });
+
+            const data = await res.json();
+            if(data.success) {
+                document.getElementById('result').innerHTML = `
+                    <p>✅ Fusion réussie !</p>
+                    <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-btn">⬇️ Télécharger ${data.downloadName}</a>
+                `;
+            }
+        });
+    </script>
+</body>
+</html>

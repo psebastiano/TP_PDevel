@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Diviser PDF</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
+        h1 { text-align: center; color: #333; }
+
+        .upload-area { border: 3px dashed #667eea; border-radius: 15px; padding: 30px; text-align: center; background: #f8f9ff; cursor: pointer; transition: 0.3s; margin-bottom: 30px; }
+        .upload-area:hover { background: #eef0ff; }
+
+        .file-item {
+            background: white; border: 1px solid #e0e0e0; padding: 20px; margin-bottom: 15px; border-radius: 10px;
+            display: flex; flex-direction: column; gap: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .file-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #eee; padding-bottom: 10px; margin-bottom: 5px; }
+        .file-name { font-weight: 600; color: #333; font-size: 1.1em; }
+
+        .controls-row { display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; }
+
+        .input-group { display: flex; flex-direction: column; gap: 5px; }
+        .input-group label { font-size: 0.85em; font-weight: 600; color: #666; }
+
+        input[type="number"] { width: 80px; padding: 8px; border: 1px solid #ccc; border-radius: 5px; text-align: center; }
+        input[type="text"] { width: 200px; padding: 8px; border: 1px solid #ccc; border-radius: 5px; }
+
+        button.split-btn {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5253 100%);
+            color: white; border: none; padding: 10px 25px; border-radius: 20px; cursor: pointer; font-weight: 600;
+            margin-left: auto;
+        }
+        button.remove-btn { background: none; border: none; color: #ff4757; cursor: pointer; font-size: 1.2em; }
+
+        .download-zone { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #eee; display: flex; gap: 10px; flex-wrap: wrap; }
+        .download-link { background: #dff9fb; color: #130f40; padding: 8px 15px; text-decoration: none; border-radius: 5px; font-size: 0.9em; border: 1px solid #c7ecee; }
+
+        .loader { width: 20px; height: 20px; border: 3px solid #f3f3f3; border-top: 3px solid #ff6b6b; border-radius: 50%; animation: spin 1s linear infinite; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Retour Accueil</a>
+    <div class="container">
+        <h1>✂️ Diviser des PDF</h1>
+
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <h3>📂 Cliquez ou glissez vos PDF ici</h3>
+            <p>(Sélection multiple autorisée)</p>
+            <input type="file" id="fileInput" multiple accept=".pdf" style="display: none;">
+        </div>
+
+        <div id="fileList"></div>
+    </div>
+
+    <script>
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            if(e.target.files.length === 0) return;
+            const formData = new FormData();
+            for(let file of e.target.files) formData.append('files[]', file);
+
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if(data.files) data.files.forEach(file => addFileToUI(file));
+            e.target.value = '';
+        });
+
+        function addFileToUI(file) {
+            const list = document.getElementById('fileList');
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            const uniqueId = Math.random().toString(36).substr(2, 9);
+            // Nom par défaut suggéré (sans l'extension)
+            const defaultName = file.name.replace('.pdf', '');
+
+            item.innerHTML = `
+                <div class="file-header">
+                    <span class="file-name">📄 ${file.name}</span>
+                    <button class="remove-btn" onclick="this.closest('.file-item').remove()">✖</button>
+                </div>
+
+                <div class="controls-row">
+                    <div class="input-group">
+                        <label>Couper après la page :</label>
+                        <input type="number" id="page-${uniqueId}" value="1" min="1">
+                    </div>
+
+                    <div class="input-group">
+                        <label>Nom des fichiers (Base) :</label>
+                        <input type="text" id="name-${uniqueId}" value="${defaultName}" placeholder="Nom du fichier">
+                    </div>
+
+                    <button class="split-btn" onclick="processSplit('${file.path}', '${uniqueId}', this)">
+                        Couper
+                    </button>
+                    <div id="loader-${uniqueId}" class="loader"></div>
+                </div>
+
+                <div id="result-${uniqueId}" class="download-zone" style="display:none"></div>
+            `;
+            list.appendChild(item);
+        }
+
+        async function processSplit(path, id, btn) {
+            const splitPage = document.getElementById(`page-${id}`).value;
+            const outputPrefix = document.getElementById(`name-${id}`).value;
+            const loader = document.getElementById(`loader-${id}`);
+            const resultDiv = document.getElementById(`result-${id}`);
+
+            btn.style.display = 'none';
+            loader.style.display = 'block';
+            resultDiv.innerHTML = '';
+            resultDiv.style.display = 'none';
+
+            try {
+                const res = await fetch('/api/split', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        filename: path,
+                        splitPage: splitPage,
+                        outputPrefix: outputPrefix
+                    })
+                });
+                const data = await res.json();
+
+                if(data.success) {
+                    resultDiv.style.display = 'flex';
+                    data.files.forEach(f => {
+                        resultDiv.innerHTML += `
+                            <a href="/download/${f.filename}?name=${encodeURIComponent(f.downloadName)}" class="download-link">
+                                ⬇️ ${f.label}
+                            </a>
+                        `;
+                    });
+                } else {
+                    alert('Erreur: ' + data.error);
+                    btn.style.display = 'inline-block'; // Réafficher le bouton en cas d'erreur
+                }
+            } catch (e) {
+                alert('Erreur serveur');
+                btn.style.display = 'inline-block';
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
