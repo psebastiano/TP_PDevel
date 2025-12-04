@@ -92,6 +92,17 @@ def pdf_to_jpeg_interface():
 
 @app.route('/upload', methods=['POST'])
 def upload_files():
+    """Upload one or multiple files.
+
+    Args:
+        files[] (form-data): List of files to upload.
+
+    Returns:
+        JSON: List of uploaded files with original name and server path.
+
+    Raises:
+        400: If no file is provided in the request.
+    """
     if 'files[]' not in request.files:
         return jsonify({'error': 'Aucun fichier trouvé'}), 400
 
@@ -115,6 +126,22 @@ def upload_files():
 
 @app.route('/api/merge', methods=['POST'])
 def merge_action():
+    """Merge multiple PDF files into a single PDF.
+
+    Args:
+        files (list of str): List of file paths to merge (must be at least 2).
+        outputName (str, optional): Base name for the merged PDF.
+
+    Returns:
+        JSON: 
+            - success (bool): True if merge succeeded.
+            - filename (str): Server filename of merged PDF.
+            - downloadName (str): Suggested download name.
+
+    Raises:
+        400: If fewer than 2 files are provided.
+        500: On any error during merging.
+    """
     data = request.json
     file_paths = data.get('files', [])
     output_name = secure_filename(data.get('outputName', 'merged')) or 'merged'
@@ -145,6 +172,23 @@ def merge_action():
 
 @app.route('/api/sign', methods=['POST'])
 def sign_pdf_action():
+    """Sign a PDF with a PNG image on the last page.
+
+    Args:
+        pdf (file): PDF file to sign.
+        signature (file): PNG image of the signature.
+        position (str, optional): Position of the signature ('bottom-right' by default).
+
+    Returns:
+        JSON:
+            - success (bool): True if signing succeeded.
+            - filename (str): Server filename of signed PDF.
+            - downloadName (str): Suggested download name.
+
+    Raises:
+        400: If required files are missing or invalid.
+        500: On any error during PDF signing.
+    """
     # Vérification des fichiers
     if 'pdf' not in request.files or 'signature' not in request.files:
         return jsonify({'error': 'PDF et image de signature requis'}), 400
@@ -241,9 +285,28 @@ def sign_pdf_action():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
 @app.route('/api/merge_advanced', methods=['POST'])
 def merge_advanced_action():
-    """Fusion avancée avec plusieurs groupes"""
+    """Merge multiple PDF groups into separate PDFs.
+
+    Args:
+        groups (list of dict): Each dict contains:
+            - name (str, optional): Base name for the group.
+            - files (list of str): File paths to merge for the group.
+
+    Returns:
+        JSON:
+            - success (bool): True if at least one group was merged.
+            - files (list of dict): Each dict contains:
+                - filename (str): Server filename of merged PDF.
+                - downloadName (str): Suggested download name.
+                - displayName (str): Name to display in UI.
+
+    Raises:
+        400: If no groups provided or no files generated.
+        500: On any error during merging.
+    """
     data = request.json
     groups = data.get('groups', [])
 
@@ -292,6 +355,25 @@ def merge_advanced_action():
 
 @app.route('/api/split', methods=['POST'])
 def split_action():
+    """Split a PDF into two parts at a specified page.
+
+    Args:
+        filename (str): Name of the PDF file to split.
+        splitPage (int, optional): Page number at which to split (default 1).
+        outputPrefix (str, optional): Prefix for the output files (default 'split').
+
+    Returns:
+        JSON:
+            - success (bool): True if split succeeded.
+            - files (list of dict): Each dict contains:
+                - filename (str): Server filename of split PDF.
+                - downloadName (str): Suggested download name.
+                - label (str): Display label for download.
+
+    Raises:
+        400: If split page is invalid.
+        500: On any error during PDF splitting.
+    """
     data = request.json
     filename = data.get('filename')
     split_page = int(data.get('splitPage', 1))
@@ -344,6 +426,24 @@ def split_action():
 
 @app.route('/api/watermark', methods=['POST'])
 def watermark_action():
+    """Apply a text watermark to one or multiple PDF files.
+
+    Args:
+        files[] (form-data): List of PDF files to watermark.
+        watermarkText (str, optional): Text to use as watermark (default 'CONFIDENTIEL').
+        outputName (str, optional): Base name for output file(s).
+
+    Returns:
+        JSON:
+            - success (bool): True if processing succeeded.
+            - filename (str): Server filename of resulting PDF or ZIP.
+            - downloadName (str): Suggested download name for user.
+            - type (str): 'single' for one file, 'zip' for multiple files.
+
+    Raises:
+        400: If no files are provided or no valid files processed.
+        500: On any error during watermarking.
+    """
     if 'files[]' not in request.files:
         return jsonify({'error': 'Veuillez fournir au moins un fichier PDF'}), 400
 
@@ -432,7 +532,24 @@ def watermark_action():
 
 @app.route('/api/rotate', methods=['POST'])
 def rotate_action():
-    """Rotation avec ajustement strict de la taille (Tight Bounding Box)"""
+    """    Rotate a PDF file with optional tight bounding box adjustment.
+
+    Args:
+        file (file): PDF file to rotate.
+        angle (int, optional): Rotation angle in degrees (default 90).
+        direction (str, optional): 'clockwise' or 'counterclockwise' (default 'clockwise').
+        outputName (str, optional): Base name for output PDF (default 'rotated').
+
+    Returns:
+        JSON:
+            - success (bool): True if rotation succeeded.
+            - filename (str): Server filename of rotated PDF.
+            - downloadName (str): Suggested download name.
+
+    Raises:
+        400: If no file provided or file format is invalid.
+        500: On any error during rotation.
+    """
     if 'file' not in request.files:
         return jsonify({'error': 'Aucun fichier fourni'}), 400
 
@@ -525,7 +642,24 @@ def rotate_action():
 
 @app.route('/api/signature', methods=['POST'])
 def signature_action():
-    """Ajout de signature sur PDF"""
+    """Add a signature image to a PDF.
+
+    Args:
+        pdf (file): PDF file to sign.
+        signature (file): Image file (PNG/JPG) of the signature.
+        position (str, optional): Position on the page ('bottom-right' by default).
+        outputName (str, optional): Base name for output PDF (default 'signed').
+
+    Returns:
+        JSON:
+            - success (bool): True if signing succeeded.
+            - filename (str): Server filename of signed PDF.
+            - downloadName (str): Suggested download name.
+
+    Raises:
+        400: If required files are missing or invalid format.
+        500: On any error during PDF signing.
+    """
     if 'pdf' not in request.files or 'signature' not in request.files:
         return jsonify({'error': 'PDF et signature requis'}), 400
 
@@ -606,7 +740,20 @@ def signature_action():
 
 @app.route('/api/check_pdf_pages', methods=['POST'])
 def check_pdf_pages():
-    """Vérifier le nombre de pages d'un PDF"""
+    """Check the number of pages in a PDF file.
+
+    Args:
+        file (file): PDF file to check.
+
+    Returns:
+        JSON:
+            - success (bool): True if check succeeded.
+            - pages (int): Number of pages in the PDF.
+
+    Raises:
+        400: If no file is provided.
+        500: On any error during PDF reading.
+    """
     if 'file' not in request.files:
         return jsonify({'error': 'Aucun fichier'}), 400
 
@@ -633,7 +780,23 @@ def check_pdf_pages():
 
 @app.route('/api/pdf_to_jpeg', methods=['POST'])
 def pdf_to_jpeg_action():
-    """Conversion PDF vers JPEG (Max 30 pages)"""
+    """Convert a PDF (up to 30 pages) into JPEG images and return as a ZIP.
+
+    Args:
+        file (file): PDF file to convert.
+        outputName (str, optional): Base name for output ZIP (default 'images_pdf').
+
+    Returns:
+        JSON:
+            - success (bool): True if conversion succeeded.
+            - filename (str): Server filename of ZIP containing images.
+            - downloadName (str): Suggested download name for user.
+            - image_count (int): Number of pages converted to JPEG.
+
+    Raises:
+        400: If no file provided, invalid format, or PDF pages cannot be read.
+        500: If pdf2image is missing or any error occurs during conversion.
+    """
     if 'file' not in request.files:
         return jsonify({'error': 'Aucun fichier fourni'}), 400
 
@@ -697,6 +860,18 @@ def pdf_to_jpeg_action():
 
 @app.route('/download/<filename>')
 def download_file(filename):
+    """Download a file from the server.
+
+    Args:
+        filename (str): Internal server filename to download.
+        name (str, optional, query param): Suggested download name for the file.
+
+    Returns:
+        File: The requested file as an attachment.
+
+    Raises:
+        404: If the requested file does not exist on the server.
+    """
     download_name = request.args.get('name', filename)
     filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
     if os.path.exists(filepath):
