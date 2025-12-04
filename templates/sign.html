@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Signer un Document PDF</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
+        .container { max-width: 700px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
+        h1 { text-align: center; color: #333; margin-bottom: 30px; }
+        .step-box { background: #f8f9fa; border: 2px dashed #ddd; padding: 30px; border-radius: 10px; margin-bottom: 20px; text-align: center; transition: 0.3s; cursor: pointer; }
+        .step-box:hover { border-color: #667eea; background: #f0f4ff; }
+        .step-box.active { border-color: #2ecc71; background: #e8f5e9; }
+        .step-title { font-weight: bold; display: block; margin-bottom: 10px; color: #555; }
+        .input-text-zone { margin-top: 20px; background: #fff; padding: 20px; border: 1px solid #eee; border-radius: 10px; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: #555; }
+        select { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em; box-sizing: border-box; }
+        button.action-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.1em; cursor: pointer; font-weight: 600; margin-top: 20px; }
+        button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .download-zone { text-align: center; margin-top: 20px; display: none; }
+        .download-link { background: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; display: inline-block; }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Retour Accueil</a>
+    <div class="container">
+        <h1>Signer un Document PDF</h1>
+        <p style="text-align: center; color: #666; margin-bottom: 30px;">Téléchargez votre PDF et votre signature.</p>
+
+        <div class="step-box" id="dropZoneSource" onclick="document.getElementById('pdfInput').click()">
+            <span class="step-title">1. Cliquez ou Glissez votre PDF ici</span>
+            <input type="file" id="pdfInput" accept=".pdf" style="display: none;">
+        </div>
+
+        <div class="step-box" id="dropZoneSignature" onclick="document.getElementById('signatureInput').click()">
+            <span class="step-title">2. Cliquez ou Glissez votre signature ici (PNG)</span>
+            <input type="file" id="signatureInput" accept=".png" style="display: none;">
+        </div>
+
+        <div class="input-text-zone">
+            <div class="form-group">
+                <label>3. Localisation de la signature :</label>
+                <select id="signaturePosition">
+                    <option value="bottom-left">Bas Gauche</option>
+                    <option value="bottom-right">Bas Droite</option>
+                    <option value="bottom-center">Bas Centre</option>
+                </select>
+            </div>
+        </div>
+
+        <button id="processBtn" class="action-btn" disabled>Signer le document</button>
+
+        <div id="loader" class="loader"></div>
+        <div id="result" class="download-zone"></div>
+    </div>
+
+    <script>
+        let pdfFile = null;
+        let signatureFile = null;
+
+        const dropZonePDF = document.getElementById('dropZoneSource');
+        const dropZonePNG = document.getElementById('dropZoneSignature');
+        const pdfInput = document.getElementById('pdfInput');
+        const signatureInput = document.getElementById('signatureInput');
+        const processBtn = document.getElementById('processBtn');
+        const loader = document.getElementById('loader');
+        const resultDiv = document.getElementById('result');
+
+        // Drag & Drop setup for both zones
+        function setupDrop(zone, onFiles) {
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
+                zone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+            });
+            ['dragenter', 'dragover'].forEach(evt => {
+                zone.addEventListener(evt, () => zone.classList.add('active'), false);
+            });
+            ['dragleave', 'drop'].forEach(evt => {
+                zone.addEventListener(evt, () => zone.classList.remove('active'), false);
+            });
+            zone.addEventListener('drop', (e) => onFiles(e.dataTransfer.files));
+        }
+
+        setupDrop(dropZonePDF, (files) => {
+            const f = files[0];
+            if (f && f.type === 'application/pdf') {
+                pdfFile = f;
+                dropZonePDF.querySelector('.step-title').innerText = "✅ PDF sélectionné: " + f.name;
+                updateButton();
+            } else {
+                alert('Veuillez déposer un fichier PDF.');
+            }
+        });
+
+        setupDrop(dropZonePNG, (files) => {
+            const f = files[0];
+            if (f && (f.type === 'image/png' || f.name.toLowerCase().endsWith('.png'))) {
+                signatureFile = f;
+                dropZonePNG.querySelector('.step-title').innerText = "✅ Signature sélectionnée: " + f.name;
+                updateButton();
+            } else {
+                alert('Veuillez déposer une image PNG.');
+            }
+        });
+
+        // Fallback input
+        pdfInput.addEventListener('change', (e) => {
+            const f = e.target.files[0];
+            if (f && f.type === 'application/pdf') {
+                pdfFile = f;
+                dropZonePDF.querySelector('.step-title').innerText = "✅ PDF sélectionné: " + f.name;
+                updateButton();
+            } else {
+                alert('Veuillez choisir un PDF.');
+            }
+        });
+
+        signatureInput.addEventListener('change', (e) => {
+            const f = e.target.files[0];
+            if (f && (f.type === 'image/png' || f.name.toLowerCase().endsWith('.png'))) {
+                signatureFile = f;
+                dropZonePNG.querySelector('.step-title').innerText = "✅ Signature sélectionnée: " + f.name;
+                updateButton();
+            } else {
+                alert('Veuillez choisir un PNG.');
+            }
+        });
+
+        function updateButton() {
+            processBtn.disabled = !(pdfFile && signatureFile);
+        }
+
+        processBtn.addEventListener('click', async () => {
+            if (!pdfFile || !signatureFile) return;
+            const position = document.getElementById('signaturePosition').value;
+
+            const formData = new FormData();
+            formData.append('pdf', pdfFile);
+            formData.append('signature', signatureFile);
+            formData.append('position', position);
+
+            processBtn.disabled = true;
+            loader.style.display = 'block';
+            resultDiv.style.display = 'none';
+            resultDiv.innerHTML = '';
+
+            try {
+                const res = await fetch('/api/sign', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <p style="color:green; font-weight:bold;">✅ Document signé !</p>
+                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-link">
+                            ⬇️ Télécharger le PDF signé
+                        </a>
+                    `;
+                    resultDiv.style.display = 'block';
+                } else {
+                    alert('Erreur: ' + data.error);
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Erreur technique');
+            } finally {
+                loader.style.display = 'none';
+                processBtn.disabled = false;
+            }
+        });
+    </script>
+</body>
+</html>
