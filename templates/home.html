@@ -4,20 +4,106 @@
     <meta charset="UTF-8">
     <title>Accueil - Outils PDF</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100vh; display: flex; align-items: center; justify-content: center; margin: 0; color: white; }
-        .container { text-align: center; }
-        h1 { font-size: 3em; margin-bottom: 40px; text-shadow: 0 4px 10px rgba(0,0,0,0.2); }
-        .cards { display: flex; gap: 30px; justify-content: center; }
-        .card { background: white; color: #333; padding: 40px; border-radius: 20px; width: 250px; cursor: pointer; transition: transform 0.3s, box-shadow 0.3s; text-decoration: none; display: block; }
-        .card:hover { transform: translateY(-10px); box-shadow: 0 20px 40px rgba(0,0,0,0.3); }
-        .icon { font-size: 4em; margin-bottom: 20px; display: block; }
-        .title { font-size: 1.5em; font-weight: bold; margin-bottom: 10px; display: block; }
-        .desc { color: #666; font-size: 0.9em; }
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0;
+            color: white;
+            padding: 40px 20px;
+        }
+        .container {
+            text-align: center;
+            max-width: 1200px;
+            width: 100%;
+        }
+        h1 {
+            font-size: 3em;
+            margin-bottom: 20px;
+            text-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        .subtitle {
+            font-size: 1.2em;
+            margin-bottom: 40px;
+            opacity: 0.9;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: white;
+            color: #333;
+            padding: 35px 25px;
+            border-radius: 20px;
+            cursor: pointer;
+            transition: transform 0.3s, box-shadow 0.3s;
+            text-decoration: none;
+            display: block;
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 5px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        }
+        .icon {
+            font-size: 3.5em;
+            margin-bottom: 15px;
+            display: block;
+        }
+        .title {
+            font-size: 1.4em;
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: block;
+            color: #333;
+        }
+        .desc {
+            color: #666;
+            font-size: 0.9em;
+            line-height: 1.5;
+        }
+        .section-title {
+            font-size: 1.8em;
+            margin: 40px 0 30px 0;
+            font-weight: 600;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        }
+        .badge {
+            display: inline-block;
+            background: #2ecc71;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 12px;
+            font-size: 0.7em;
+            font-weight: bold;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Outils PDF Intelligents</h1>
+        <h1>🛠️ Outils PDF Professionnels</h1>
+        <p class="subtitle">Suite complète d'outils pour gérer vos documents PDF</p>
+
+        <div class="section-title">📋 Outils de base</div>
         <div class="cards">
             <a href="/tool/merge" class="card">
                 <span class="icon">🔗</span>
@@ -34,7 +120,25 @@
                 <span class="title">Filigrane</span>
                 <span class="desc">Ajoutez du texte (Copyright, Confidentiel) sur vos pages.</span>
             </a>
+
+            <a href="/tool/rotate" class="card">
+                <span class="icon">🔄</span>
+                <span class="title">Pivoter </span>
+                <span class="desc">Faites pivoter vos PDF de 45°, 90°, 180° ou 270° dans le sens de votre choix.</span>
+            </a>
+            <a href="/tool/signature" class="card">
+                <span class="icon">✍️</span>
+                <span class="title">Signature </span>
+                <span class="desc">Ajoutez votre signature image en haut ou en bas du document.</span>
+            </a>
+            <a href="/tool/pdf_to_jpeg" class="card">
+                <span class="icon">🖼️</span>
+                <span class="title">PDF vers JPEG </span>
+                <span class="desc">Convertissez chaque page de votre PDF en image JPEG (max 30 pages).</span>
+            </a>
         </div>
+
+
     </div>
 </body>
 </html>

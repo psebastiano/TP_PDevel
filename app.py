@@ -1,45 +1,39 @@
 from flask import Flask, render_template, request, send_file, jsonify
 from werkzeug.utils import secure_filename
 import os
-from PyPDF2 import PdfMerger, PdfReader, PdfWriter
+from PyPDF2 import PdfMerger, PdfReader, PdfWriter, Transformation
 import tempfile
 from datetime import datetime
-
-# Nouveaux imports pour le dessin du texte
 from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 import zipfile
+import io
+import math
 
 app = Flask(__name__)
-# Dossier temporaire système
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
+app.config['ALLOWED_IMAGE_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
 
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 
-# --- FONCTION UTILITAIRE : GÉNÉRER LE FILIGRANE ---
+def allowed_image(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_IMAGE_EXTENSIONS']
+
+
 def create_text_watermark(text, output_path, width, height):
-    """Crée un PDF temporaire de la taille exacte demandée"""
-    # On s'assure que width/height sont des floats pour ReportLab
+    """Crée un PDF temporaire de la taille exacte demandée avec un filigrane"""
     w = float(width)
     h = float(height)
-
     c = canvas.Canvas(output_path, pagesize=(w, h))
-
-    # On se place au centre exact de CETTE page
     c.translate(w / 2, h / 2)
     c.rotate(45)
-
-    # On adapte légèrement la taille de police selon la largeur de page
-    # (Base 60 pour une largeur d'environ 600 points)
     font_size = 60 * (w / 600.0)
     c.setFont("Helvetica-Bold", font_size)
-
     c.setFillColor(colors.grey, alpha=0.5)
     c.drawCentredString(0, 0, text)
     c.save()
@@ -62,9 +56,29 @@ def merge_interface():
     return render_template('merge.html')
 
 
+@app.route('/tool/merge_advanced')
+def merge_advanced_interface():
+    return render_template('merge_advanced.html')
+
+
 @app.route('/tool/split')
 def split_interface():
     return render_template('split.html')
+
+
+@app.route('/tool/rotate')
+def rotate_interface():
+    return render_template('rotate.html')
+
+
+@app.route('/tool/signature')
+def signature_interface():
+    return render_template('signature.html')
+
+
+@app.route('/tool/pdf_to_jpeg')
+def pdf_to_jpeg_interface():
+    return render_template('pdf_to_jpeg.html')
 
 
 # --- ROUTES API ---
@@ -122,6 +136,55 @@ def merge_action():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/merge_advanced', methods=['POST'])
+def merge_advanced_action():
+    """Fusion avancée avec plusieurs groupes"""
+    data = request.json
+    groups = data.get('groups', [])
+
+    if not groups:
+        return jsonify({'error': 'Aucun groupe fourni'}), 400
+
+    try:
+        result_files = []
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        for idx, group in enumerate(groups):
+            group_name = secure_filename(group.get('name', f'groupe_{idx + 1}')) or f'groupe_{idx + 1}'
+            file_paths = group.get('files', [])
+
+            if len(file_paths) < 1:
+                continue
+
+            merger = PdfMerger()
+            for file_path in file_paths:
+                full_path = os.path.join(app.config['UPLOAD_FOLDER'], file_path)
+                if os.path.exists(full_path):
+                    merger.append(full_path)
+
+            output_filename = f"{group_name}_{timestamp}.pdf"
+            output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+
+            merger.write(output_path)
+            merger.close()
+
+            result_files.append({
+                'filename': output_filename,
+                'downloadName': f"{group_name}.pdf",
+                'displayName': f"{group_name}.pdf"
+            })
+
+        if not result_files:
+            return jsonify({'error': 'Aucun fichier généré'}), 400
+
+        return jsonify({
+            'success': True,
+            'files': result_files
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/split', methods=['POST'])
 def split_action():
     data = request.json
@@ -174,7 +237,6 @@ def split_action():
         return jsonify({'error': str(e)}), 500
 
 
-# --- NOUVELLE ROUTE FILIGRANE (TEXTE) ---
 @app.route('/api/watermark', methods=['POST'])
 def watermark_action():
     if 'files[]' not in request.files:
@@ -193,37 +255,27 @@ def watermark_action():
     try:
         for index, file in enumerate(files):
             if file and allowed_file(file.filename):
-                # 1. Sauvegarde du fichier source
                 filename = secure_filename(file.filename)
                 source_path = os.path.join(app.config['UPLOAD_FOLDER'], f"src_{index}_{timestamp_global}_{filename}")
                 file.save(source_path)
 
-                # 2. Analyse de la taille de la première page du PDF
                 source_reader = PdfReader(source_path)
                 first_page = source_reader.pages[0]
-
-                # Récupération des dimensions (MediaBox)
                 page_width = first_page.mediabox.width
                 page_height = first_page.mediabox.height
 
-                # 3. Création d'un filigrane SPÉCIFIQUE à ce fichier (bonne taille)
                 watermark_pdf_name = f"wm_temp_{index}_{timestamp_global}.pdf"
                 watermark_path = os.path.join(app.config['UPLOAD_FOLDER'], watermark_pdf_name)
-
-                # On passe les dimensions détectées
                 create_text_watermark(watermark_text, watermark_path, page_width, page_height)
 
-                # 4. Fusion
                 watermark_reader = PdfReader(watermark_path)
                 watermark_page = watermark_reader.pages[0]
                 writer = PdfWriter()
 
                 for page in source_reader.pages:
-                    # PyPDF2 superpose les pages. Si elles font la même taille, le centre s'aligne.
                     page.merge_page(watermark_page)
                     writer.add_page(page)
 
-                # 5. Écriture du résultat
                 output_filename = f"WM_{filename}"
                 output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"out_{index}_{timestamp_global}_{filename}")
 
@@ -235,12 +287,9 @@ def watermark_action():
                     'download_name': output_filename
                 })
 
-        # --- Fin de la boucle, gestion du retour ---
-
         if not processed_files:
             return jsonify({'error': 'Aucun fichier valide traité'}), 400
 
-        # Cas A : Un seul fichier
         if len(processed_files) == 1:
             final_file = processed_files[0]
             dl_name = final_file['download_name']
@@ -253,8 +302,6 @@ def watermark_action():
                 'downloadName': dl_name,
                 'type': 'single'
             })
-
-        # Cas B : ZIP
         else:
             zip_name = output_name_user if output_name_user else "documents_filigranes"
             if not zip_name.lower().endswith('.zip'):
@@ -274,6 +321,256 @@ def watermark_action():
                 'type': 'zip'
             })
 
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/rotate', methods=['POST'])
+def rotate_action():
+    """Rotation avec ajustement strict de la taille (Tight Bounding Box)"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier fourni'}), 400
+
+    file = request.files['file']
+    angle_input = int(request.form.get('angle', 90))
+    direction = request.form.get('direction', 'clockwise')
+    output_name = request.form.get('outputName', 'rotated')
+    output_name = secure_filename(output_name) or 'rotated'
+
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Format de fichier invalide'}), 400
+
+    try:
+        # 1. Calcul de l'angle
+        if direction == 'clockwise':
+            rotation_angle = -angle_input
+        else:
+            rotation_angle = angle_input
+
+        # Sauvegarder temporairement
+        timestamp = datetime.now().strftime('%H%M%S')
+        temp_filename = f"temp_{timestamp}_{secure_filename(file.filename)}"
+        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_filename)
+        file.save(temp_path)
+
+        reader = PdfReader(temp_path)
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            # Si rotation simple (90, 180...), on utilise la méthode standard
+            if rotation_angle % 90 == 0:
+                page.rotate(rotation_angle)
+                writer.add_page(page)
+            else:
+                # --- CALCUL GÉOMÉTRIQUE PRÉCIS (45°) ---
+
+                # 1. On récupère la taille VISIBLE (CropBox) et non la taille totale
+                # Cela évite de tourner des marges vides inutiles
+                w = float(page.cropbox.width)
+                h = float(page.cropbox.height)
+
+                # 2. Conversion en radians pour les calculs
+                angle_rad = math.radians(rotation_angle)
+                cos_a = abs(math.cos(angle_rad))
+                sin_a = abs(math.sin(angle_rad))
+
+                # 3. Calcul de la nouvelle taille EXACTE (Bounding Box)
+                # C'est la taille minimale pour contenir le rectangle incliné
+                new_w = (w * cos_a) + (h * sin_a)
+                new_h = (w * sin_a) + (h * cos_a)
+
+                # 4. On crée une page vierge de la nouvelle taille exacte
+                # Note: PyPDF2 modifie la page en place, donc on ajuste ses dimensions
+
+                # IMPORTANT : On normalise la page à (0,0) pour simplifier la rotation
+                page.mediabox.lower_left = (0, 0)
+                page.mediabox.upper_right = (w, h)
+
+                # Matrice de transformation :
+                # - Centrer l'ancienne page au point (0,0)
+                # - Pivoter
+                # - Déplacer vers le centre de la NOUVELLE taille
+                op = Transformation().translate(-w / 2, -h / 2).rotate(rotation_angle).translate(new_w / 2, new_h / 2)
+
+                page.add_transformation(op)
+
+                # 5. On applique les nouvelles dimensions au conteneur PDF
+                page.mediabox.upper_right = (new_w, new_h)
+                # On s'assure que la zone affichée (CropBox) correspond à la zone totale
+                page.cropbox.upper_right = (new_w, new_h)
+
+                writer.add_page(page)
+
+        output_filename = f"{output_name}_{timestamp}.pdf"
+        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+
+        with open(output_path, 'wb') as output_file:
+            writer.write(output_file)
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'downloadName': f"{output_name}.pdf"
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/signature', methods=['POST'])
+def signature_action():
+    """Ajout de signature sur PDF"""
+    if 'pdf' not in request.files or 'signature' not in request.files:
+        return jsonify({'error': 'PDF et signature requis'}), 400
+
+    pdf_file = request.files['pdf']
+    signature_file = request.files['signature']
+    position = request.form.get('position', 'bottom-right')
+    output_name = request.form.get('outputName', 'signed')
+    output_name = secure_filename(output_name) or 'signed'
+
+    if not allowed_file(pdf_file.filename) or not allowed_image(signature_file.filename):
+        return jsonify({'error': 'Format de fichier invalide'}), 400
+
+    try:
+        timestamp = datetime.now().strftime('%H%M%S')
+
+        # Sauvegarder le PDF
+        pdf_temp = f"pdf_{timestamp}_{secure_filename(pdf_file.filename)}"
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_temp)
+        pdf_file.save(pdf_path)
+
+        # Lire le PDF
+        reader = PdfReader(pdf_path)
+        first_page = reader.pages[0]
+        page_width = float(first_page.mediabox.width)
+        page_height = float(first_page.mediabox.height)
+
+        # Créer un PDF avec la signature
+        sig_pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], f"sig_{timestamp}.pdf")
+        c = canvas.Canvas(sig_pdf_path, pagesize=(page_width, page_height))
+
+        # Calculer la position
+        sig_width = 150  # Largeur de la signature
+        sig_height = 50  # Hauteur de la signature
+        margin = 30
+
+        if position == 'bottom-right':
+            x = page_width - sig_width - margin
+            y = margin
+        elif position == 'bottom-left':
+            x = margin
+            y = margin
+        elif position == 'top-right':
+            x = page_width - sig_width - margin
+            y = page_height - sig_height - margin
+        else:  # top-left
+            x = margin
+            y = page_height - sig_height - margin
+
+        # Dessiner la signature
+        c.drawImage(signature_file, x, y, width=sig_width, height=sig_height, mask='auto', preserveAspectRatio=True)
+        c.save()
+
+        # Fusionner avec chaque page
+        sig_reader = PdfReader(sig_pdf_path)
+        sig_page = sig_reader.pages[0]
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            page.merge_page(sig_page)
+            writer.add_page(page)
+
+        # Sauvegarder le résultat
+        output_filename = f"{output_name}_{timestamp}.pdf"
+        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+
+        with open(output_path, 'wb') as output_file:
+            writer.write(output_file)
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'downloadName': f"{output_name}.pdf"
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/check_pdf_pages', methods=['POST'])
+def check_pdf_pages():
+    """Vérifier le nombre de pages d'un PDF"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier'}), 400
+
+    file = request.files['file']
+
+    try:
+        # Lire directement depuis le stream
+        reader = PdfReader(file.stream)
+        page_count = len(reader.pages)
+
+        return jsonify({
+            'success': True,
+            'pages': page_count
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/pdf_to_jpeg', methods=['POST'])
+def pdf_to_jpeg_action():
+    """Conversion PDF vers JPEG"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier fourni'}), 400
+
+    file = request.files['file']
+    output_name = request.form.get('outputName', 'images_pdf')
+    output_name = secure_filename(output_name) or 'images_pdf'
+
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Format de fichier invalide'}), 400
+
+    try:
+        # Nécessite pdf2image (qui utilise poppler)
+        # Installation: pip install pdf2image
+        # Sur Ubuntu: apt-get install poppler-utils
+        # Sur Windows: télécharger poppler et ajouter au PATH
+        from pdf2image import convert_from_path
+
+        timestamp = datetime.now().strftime('%H%M%S')
+        temp_pdf = f"temp_{timestamp}_{secure_filename(file.filename)}"
+        temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_pdf)
+        file.save(temp_path)
+
+        # Convertir en images (max 30 pages)
+        images = convert_from_path(temp_path, dpi=200, fmt='jpeg', first_page=1, last_page=30)
+
+        # Créer un ZIP
+        zip_filename = f"{output_name}_{timestamp}.zip"
+        zip_path = os.path.join(app.config['UPLOAD_FOLDER'], zip_filename)
+
+        with zipfile.ZipFile(zip_path, 'w') as zipf:
+            for i, image in enumerate(images, 1):
+                img_buffer = io.BytesIO()
+                image.save(img_buffer, format='JPEG', quality=95)
+                img_buffer.seek(0)
+
+                # Ajouter au ZIP
+                img_filename = f"page_{i:03d}.jpg"
+                zipf.writestr(img_filename, img_buffer.read())
+
+        return jsonify({
+            'success': True,
+            'filename': zip_filename,
+            'downloadName': f"{output_name}.zip",
+            'image_count': len(images)
+        })
+
+    except ImportError:
+        return jsonify({'error': 'Module pdf2image non installé. Veuillez installer: pip install pdf2image'}), 500
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
