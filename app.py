@@ -1,4 +1,5 @@
 from flask import Flask, render_template, request, send_file, jsonify
+from reportlab.lib.utils import ImageReader
 from werkzeug.utils import secure_filename
 import os
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter, Transformation
@@ -7,6 +8,7 @@ from datetime import datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib import colors
 import zipfile
+from pdf2image import convert_from_path
 import io
 import math
 
@@ -46,9 +48,14 @@ def home():
     return render_template('home.html')
 
 
+
 @app.route('/tool/watermark')
 def watermark_interface():
     return render_template('watermark.html')
+
+@app.route('/tool/sign')
+def sign_interface():
+    return render_template('sign.html')
 
 
 @app.route('/tool/merge')
@@ -73,7 +80,7 @@ def rotate_interface():
 
 @app.route('/tool/signature')
 def signature_interface():
-    return render_template('signature.html')
+    return render_template('sign.html')
 
 
 @app.route('/tool/pdf_to_jpeg')
@@ -136,6 +143,104 @@ def merge_action():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/sign', methods=['POST'])
+def sign_pdf_action():
+    # Vérification des fichiers
+    if 'pdf' not in request.files or 'signature' not in request.files:
+        return jsonify({'error': 'PDF et image de signature requis'}), 400
+
+    pdf_file = request.files['pdf']
+    sig_file = request.files['signature']
+    position = request.form.get('position', 'bottom-right')
+
+    # Validation basique des extensions
+    if not pdf_file.filename.lower().endswith('.pdf'):
+        return jsonify({'error': 'Le fichier PDF est invalide'}), 400
+    if not sig_file.filename.lower().endswith('.png'):
+        return jsonify({'error': 'La signature doit être un PNG'}), 400
+
+    try:
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        pdf_name = secure_filename(pdf_file.filename)
+        sig_name = secure_filename(sig_file.filename)
+
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], f"sign_src_{ts}_{pdf_name}")
+        sig_path = os.path.join(app.config['UPLOAD_FOLDER'], f"sign_img_{ts}_{sig_name}")
+
+        pdf_file.save(pdf_path)
+        sig_file.save(sig_path)
+
+        reader = PdfReader(pdf_path)
+        writer = PdfWriter()
+
+        # Préparer l'image de signature
+        img = ImageReader(sig_path)
+
+        total_pages = len(reader.pages)
+
+        # Parcourir les pages et n'appliquer la signature que sur la dernière
+        for i, page in enumerate(reader.pages):
+            if i == total_pages - 1:
+                w = float(page.mediabox.width)
+                h = float(page.mediabox.height)
+
+                # Overlay temporaire pour la dernière page uniquement
+                overlay_path = os.path.join(app.config['UPLOAD_FOLDER'], f"overlay_{ts}_{os.urandom(4).hex()}.pdf")
+                c = canvas.Canvas(overlay_path, pagesize=(w, h))
+
+                # Taille de la signature: ~25% de la largeur de page
+                target_width = w * 0.25
+                iw, ih = img.getSize()
+                aspect = ih / iw
+                target_height = target_width * aspect
+
+                margin = 36.0  # 0.5 inch
+                if position == 'bottom-left':
+                    x = margin
+                    y = margin
+                elif position == 'bottom-right':
+                    x = w - margin - target_width
+                    y = margin
+                elif position == 'bottom-center':
+                    x = (w - target_width) / 2.0
+                    y = margin
+                else:
+                    x = w - margin - target_width
+                    y = margin
+
+                c.drawImage(img, x, y, width=target_width, height=target_height, mask='auto')
+                c.save()
+
+                # Fusion overlay avec la dernière page
+                overlay_reader = PdfReader(overlay_path)
+                overlay_page = overlay_reader.pages[0]
+                page.merge_page(overlay_page)
+
+                # Nettoyage du fichier overlay temporaire
+                try:
+                    os.remove(overlay_path)
+                except Exception:
+                    pass
+
+            # Ajouter la page (signée si c'est la dernière)
+            writer.add_page(page)
+
+        # Enregistrer le PDF signé
+        out_download = f"signe_{os.path.splitext(pdf_name)[0]}.pdf"
+        out_internal = f"signed_{ts}_{secure_filename(out_download)}"
+        out_path = os.path.join(app.config['UPLOAD_FOLDER'], out_internal)
+
+        with open(out_path, "wb") as f:
+            writer.write(f)
+
+        return jsonify({
+            'success': True,
+            'filename': out_internal,
+            'downloadName': out_download
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/merge_advanced', methods=['POST'])
 def merge_advanced_action():
     """Fusion avancée avec plusieurs groupes"""
@@ -520,9 +625,15 @@ def check_pdf_pages():
         return jsonify({'error': str(e)}), 500
 
 
+# --- AJOUTER DANS LA SECTION ROUTES D'INTERFACE ---
+
+
+
+# --- AJOUTER DANS LA SECTION ROUTES API ---
+
 @app.route('/api/pdf_to_jpeg', methods=['POST'])
 def pdf_to_jpeg_action():
-    """Conversion PDF vers JPEG"""
+    """Conversion PDF vers JPEG (Max 30 pages)"""
     if 'file' not in request.files:
         return jsonify({'error': 'Aucun fichier fourni'}), 400
 
@@ -534,31 +645,40 @@ def pdf_to_jpeg_action():
         return jsonify({'error': 'Format de fichier invalide'}), 400
 
     try:
-        # Nécessite pdf2image (qui utilise poppler)
-        # Installation: pip install pdf2image
-        # Sur Ubuntu: apt-get install poppler-utils
-        # Sur Windows: télécharger poppler et ajouter au PATH
-        from pdf2image import convert_from_path
+        # Nécessite l'installation de pdf2image : pip install pdf2image
+        # Et Poppler doit être installé sur le système.
+
 
         timestamp = datetime.now().strftime('%H%M%S')
         temp_pdf = f"temp_{timestamp}_{secure_filename(file.filename)}"
         temp_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_pdf)
         file.save(temp_path)
 
-        # Convertir en images (max 30 pages)
-        images = convert_from_path(temp_path, dpi=200, fmt='jpeg', first_page=1, last_page=30)
+        # Convertir en images (max 30 pages via last_page)
+        # dpi=200 est un bon compromis qualité/poids
+        images = convert_from_path(
+            temp_path,
+            dpi=200,
+            fmt='jpeg',
+            first_page=1,
+            last_page=30
+        )
 
-        # Créer un ZIP
+        if not images:
+            return jsonify({'error': 'Impossible de lire les pages du PDF'}), 400
+
+        # Créer un ZIP en mémoire ou sur disque
         zip_filename = f"{output_name}_{timestamp}.zip"
         zip_path = os.path.join(app.config['UPLOAD_FOLDER'], zip_filename)
 
         with zipfile.ZipFile(zip_path, 'w') as zipf:
             for i, image in enumerate(images, 1):
+                # Sauvegarder l'image en mémoire pour l'ajouter au ZIP sans écrire sur le disque
                 img_buffer = io.BytesIO()
-                image.save(img_buffer, format='JPEG', quality=95)
+                image.save(img_buffer, format='JPEG', quality=90)
                 img_buffer.seek(0)
 
-                # Ajouter au ZIP
+                # Nom dans le zip : page_001.jpg, page_002.jpg...
                 img_filename = f"page_{i:03d}.jpg"
                 zipf.writestr(img_filename, img_buffer.read())
 
@@ -570,9 +690,9 @@ def pdf_to_jpeg_action():
         })
 
     except ImportError:
-        return jsonify({'error': 'Module pdf2image non installé. Veuillez installer: pip install pdf2image'}), 500
+        return jsonify({'error': 'Le module pdf2image est manquant sur le serveur.'}), 500
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f"Erreur de conversion : {str(e)}"}), 500
 
 
 @app.route('/download/<filename>')
