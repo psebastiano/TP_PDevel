@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Pivoter un PDF</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
+        h1 { text-align: center; color: #333; margin-bottom: 10px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 30px; font-size: 0.9em; }
+
+        /* Upload Zone */
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            cursor: pointer;
+            transition: 0.3s;
+            margin-bottom: 30px;
+        }
+        .upload-area:hover { background: #eef0ff; border-color: #5a67d8; }
+        .upload-icon { font-size: 3em; margin-bottom: 10px; display: block; }
+
+        /* Options de rotation */
+        .options-panel { display: none; animation: fadeIn 0.5s; }
+
+        .file-display {
+            background: #e8f5e9; border: 1px solid #c8e6c9; color: #2e7d32;
+            padding: 15px; border-radius: 10px; margin-bottom: 20px;
+            font-weight: 600; text-align: center;
+        }
+
+        .control-group { margin-bottom: 20px; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: #555; }
+
+        select, input[type="text"] {
+            width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px;
+            font-size: 1em; box-sizing: border-box; background: white;
+        }
+
+        /* Radio Buttons customisés pour le sens */
+        .direction-selector { display: flex; gap: 15px; }
+        .radio-label {
+            flex: 1;
+            border: 2px solid #ddd;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .radio-label:hover { background: #f9f9f9; }
+        input[type="radio"] { display: none; }
+        input[type="radio"]:checked + .radio-label {
+            border-color: #667eea;
+            background: #e0e7ff;
+            color: #4338ca;
+            font-weight: bold;
+        }
+        .dir-icon { font-size: 1.5em; display: block; margin-bottom: 5px; }
+
+        button.action-btn {
+            width: 100%; padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; border-radius: 10px;
+            font-size: 1.1em; cursor: pointer; font-weight: 600; margin-top: 10px;
+        }
+        button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
+
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .download-zone { text-align: center; margin-top: 20px; display: none; }
+        .download-link { background: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; display: inline-block; font-weight: bold; box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3); }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Retour Accueil</a>
+
+    <div class="container">
+        <h1>🔄 Pivoter un PDF</h1>
+        <p class="subtitle">Changez l'orientation de vos pages facilement</p>
+
+        <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <span class="upload-icon">📄</span>
+            <h3>Cliquez ou glissez votre PDF ici</h3>
+            <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+        </div>
+
+        <div id="optionsPanel" class="options-panel">
+            <div id="fileDisplay" class="file-display"></div>
+
+            <div class="control-group">
+                <label>Angle de rotation :</label>
+                <select id="angle">
+                    <option value="90" selected>90 degrés</option>
+                    <option value="180">180 degrés</option>
+                    <option value="270">270 degrés</option>
+                    <option value="45">45 degrés</option>
+                </select>
+            </div>
+
+            <div class="control-group">
+                <label>Sens de rotation :</label>
+                <div class="direction-selector">
+                    <label>
+                        <input type="radio" name="direction" value="clockwise" checked>
+                        <div class="radio-label">
+                            <span class="dir-icon">↻</span>
+                            Horaire
+                        </div>
+                    </label>
+                    <label>
+                        <input type="radio" name="direction" value="counter-clockwise">
+                        <div class="radio-label">
+                            <span class="dir-icon">↺</span>
+                            Anti-horaire
+                        </div>
+                    </label>
+                </div>
+            </div>
+
+            <div class="control-group">
+                <label>Nom du fichier final :</label>
+                <input type="text" id="outputName" placeholder="Ex: mon_document_pivoté">
+            </div>
+
+            <button id="processBtn" class="action-btn" onclick="processRotation()">Appliquer la rotation</button>
+        </div>
+
+        <div id="loader" class="loader"></div>
+        <div id="result" class="download-zone"></div>
+    </div>
+
+    <script>
+        let currentFile = null;
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const optionsPanel = document.getElementById('optionsPanel');
+        const fileDisplay = document.getElementById('fileDisplay');
+
+        // --- Drag & Drop ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.style.background = '#e0e7ff', false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.style.background = '#f8f9ff', false);
+        });
+
+        dropZone.addEventListener('drop', (e) => handleFile(e.dataTransfer.files[0]));
+        fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+        function handleFile(file) {
+            if (!file || file.type !== 'application/pdf') {
+                alert("Veuillez sélectionner un fichier PDF valide.");
+                return;
+            }
+            currentFile = file;
+
+            // UI Update
+            dropZone.style.display = 'none';
+            optionsPanel.style.display = 'block';
+            fileDisplay.innerText = `Fichier sélectionné : ${file.name}`;
+
+            // Pré-remplir le nom de sortie
+            document.getElementById('outputName').value = file.name.replace('.pdf', '') + '_rotated';
+        }
+
+        async function processRotation() {
+            if (!currentFile) return;
+
+            const angle = document.getElementById('angle').value;
+            const direction = document.querySelector('input[name="direction"]:checked').value;
+            const outputName = document.getElementById('outputName').value;
+            const btn = document.getElementById('processBtn');
+            const loader = document.getElementById('loader');
+            const resultDiv = document.getElementById('result');
+
+            // UI Loading state
+            btn.disabled = true;
+            btn.innerText = "Traitement en cours...";
+            loader.style.display = 'block';
+            resultDiv.style.display = 'none';
+
+            const formData = new FormData();
+            formData.append('file', currentFile);
+            formData.append('angle', angle);
+            formData.append('direction', direction);
+            formData.append('outputName', outputName);
+
+            try {
+                const res = await fetch('/api/rotate', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <p style="color:green; font-weight:bold; margin-bottom:10px;">✅ Rotation effectuée !</p>
+                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-link">
+                            ⬇️ Télécharger le PDF
+                        </a>
+                        <br><br>
+                        <a href="/tool/rotate" style="color:#666; font-size:0.9em;">↻ Pivoter un autre fichier</a>
+                    `;
+                    resultDiv.style.display = 'block';
+                    btn.style.display = 'none'; // Cacher le bouton après succès
+                } else {
+                    alert('Erreur: ' + data.error);
+                    btn.disabled = false;
+                    btn.innerText = "Appliquer la rotation";
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Erreur de connexion au serveur');
+                btn.disabled = false;
+                btn.innerText = "Appliquer la rotation";
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
