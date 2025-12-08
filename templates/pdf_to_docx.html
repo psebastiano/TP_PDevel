@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>PDF ➜ DOCX</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
+        .container { max-width: 720px; margin: 0 auto; background: #fff; padding: 40px; border-radius: 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.08); }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
+        h1 { text-align: center; color: #333; margin-bottom: 12px; }
+        p.subtitle { text-align: center; color: #666; margin-top: 0; }
+
+        .upload-area { border: 3px dashed #667eea; border-radius: 15px; padding: 30px; text-align: center; background: #f8f9ff; cursor: pointer; transition: 0.3s; margin-bottom: 20px; }
+        .upload-area:hover { background: #eef0ff; }
+
+        .file-card { display: none; background: #fff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 4px 10px rgba(0,0,0,0.04); justify-content: space-between; align-items: center; }
+        .file-info { display: flex; align-items: center; gap: 12px; }
+        .file-name { font-weight: 600; color: #333; }
+        .remove-btn { background: none; border: none; color: #ff4757; cursor: pointer; font-size: 1.2em; }
+        .remove-btn:hover { color: #d63031; }
+
+        .output-group { margin: 20px 0; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: #555; }
+        input[type="text"] { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em; box-sizing: border-box; }
+
+        button.action-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.05em; cursor: pointer; font-weight: 600; }
+        button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
+
+        .result-area { text-align: center; margin-top: 16px; }
+        .download-btn { background: #28a745; color: white; padding: 12px 24px; text-decoration: none; border-radius: 50px; display: inline-block; font-weight: bold; }
+        .loader { display: none; margin: 12px auto; width: 26px; height: 26px; border: 3px solid #f3f3f3; border-top: 3px solid #667eea; border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg);} 100% { transform: rotate(360deg);} }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Retour Accueil</a>
+    <div class="container">
+        <h1>PDF ➜ DOCX</h1>
+        <p class="subtitle">Convertissez un PDF en document Word éditable</p>
+
+        <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+            <h3>Cliquez ou glissez un PDF ici</h3>
+            <p style="color:#666; font-size:0.9em;">Formats acceptés : PDF</p>
+            <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+        </div>
+
+        <div class="file-card" id="fileCard">
+            <div class="file-info">
+                <span>📄</span>
+                <span class="file-name" id="fileName">Mon fichier.pdf</span>
+            </div>
+            <button class="remove-btn" onclick="clearFile()">✖</button>
+        </div>
+
+        <div class="output-group">
+            <label>Nom du fichier Word :</label>
+            <input type="text" id="outputName" placeholder="Ex: contrat_converti">
+        </div>
+
+        <button id="convertBtn" class="action-btn" disabled>Convertir en DOCX</button>
+        <div class="loader" id="loader"></div>
+        <div class="result-area" id="result"></div>
+    </div>
+
+    <script>
+        let uploadedFile = null;
+        const fileInput = document.getElementById('fileInput');
+        const fileCard = document.getElementById('fileCard');
+        const fileNameEl = document.getElementById('fileName');
+        const convertBtn = document.getElementById('convertBtn');
+        const loader = document.getElementById('loader');
+        const resultDiv = document.getElementById('result');
+
+        const uploadArea = document.querySelector('.upload-area');
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+        });
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => uploadArea.style.background = '#eef0ff', false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadArea.addEventListener(eventName, () => uploadArea.style.background = '#f8f9ff', false);
+        });
+        uploadArea.addEventListener('drop', (e) => handleFiles(e.dataTransfer.files));
+
+        fileInput.addEventListener('change', (e) => handleFiles(e.target.files));
+
+        async function handleFiles(files) {
+            if (!files || files.length === 0) return;
+            const file = files[0];
+            if (file.type !== 'application/pdf') return alert('Veuillez sélectionner un PDF.');
+
+            const formData = new FormData();
+            formData.append('files[]', file);
+
+            const res = await fetch('/upload', { method: 'POST', body: formData });
+            const data = await res.json();
+            if (data.files && data.files.length > 0) {
+                uploadedFile = data.files[0];
+                fileNameEl.textContent = uploadedFile.name;
+                fileCard.style.display = 'flex';
+                convertBtn.disabled = false;
+                resultDiv.innerHTML = '';
+            }
+            fileInput.value = '';
+        }
+
+        function clearFile() {
+            uploadedFile = null;
+            fileCard.style.display = 'none';
+            convertBtn.disabled = true;
+            resultDiv.innerHTML = '';
+        }
+
+        convertBtn.addEventListener('click', async () => {
+            if (!uploadedFile) return;
+            const outputName = document.getElementById('outputName').value;
+
+            convertBtn.disabled = true;
+            loader.style.display = 'block';
+            resultDiv.innerHTML = '';
+
+            try {
+                const res = await fetch('/api/pdf-to-docx', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file: uploadedFile.path,
+                        outputName: outputName
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <p style="color:green; font-weight:bold;">✅ Conversion terminée</p>
+                        <a class="download-btn" href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}">
+                            ⬇️ Télécharger le DOCX
+                        </a>
+                    `;
+                } else {
+                    alert('Erreur : ' + data.error);
+                }
+            } catch (e) {
+                alert('Erreur serveur');
+            } finally {
+                loader.style.display = 'none';
+                convertBtn.disabled = !uploadedFile;
+            }
+        });
+    </script>
+</body>
+</html>
+

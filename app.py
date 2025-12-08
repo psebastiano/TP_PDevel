@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, send_file, jsonify
 from werkzeug.utils import secure_filename
 import os
 from PyPDF2 import PdfMerger, PdfReader, PdfWriter
+from pdf2docx import Converter
 import tempfile
 from datetime import datetime
 
@@ -45,6 +46,7 @@ def create_text_watermark(text, output_path, width, height):
     c.save()
 
 
+
 # --- ROUTES D'INTERFACE (HTML) ---
 
 @app.route('/')
@@ -65,6 +67,11 @@ def merge_interface():
 @app.route('/tool/split')
 def split_interface():
     return render_template('split.html')
+
+
+@app.route('/tool/pdf-to-docx')
+def pdf_to_docx_interface():
+    return render_template('pdf_to_docx.html')
 
 
 # --- ROUTES API ---
@@ -285,6 +292,43 @@ def download_file(filename):
     if os.path.exists(filepath):
         return send_file(filepath, as_attachment=True, download_name=download_name)
     return jsonify({'error': 'Fichier introuvable'}), 404
+
+
+@app.route('/api/pdf-to-docx', methods=['POST'])
+def pdf_to_docx_action():
+    data = request.json or {}
+    filename = data.get('file')
+    output_name = data.get('outputName', '').strip()
+
+    if not filename:
+        return jsonify({'error': 'Aucun fichier PDF fourni'}), 400
+
+    pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(pdf_path):
+        return jsonify({'error': 'Fichier introuvable'}), 404
+
+    base_name = secure_filename(output_name) or 'document_converti'
+    if not base_name.lower().endswith('.docx'):
+        download_name = f"{base_name}.docx"
+    else:
+        download_name = base_name
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    internal_filename = f"{os.path.splitext(download_name)[0]}_{timestamp}.docx"
+    internal_path = os.path.join(app.config['UPLOAD_FOLDER'], internal_filename)
+
+    try:
+        converter = Converter(pdf_path)
+        converter.convert(internal_path, start=0, end=None)
+        converter.close()
+    except Exception as e:
+        return jsonify({'error': f'Conversion impossible: {e}'}), 500
+
+    return jsonify({
+        'success': True,
+        'filename': internal_filename,
+        'downloadName': download_name
+    })
 
 
 if __name__ == '__main__':
