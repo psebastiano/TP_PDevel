@@ -1,4 +1,5 @@
-import PyPDF2
+import mammoth
+from xhtml2pdf import pisa
 from flask import Flask, render_template, request, send_file, jsonify
 from pdf2docx import Converter
 from reportlab.lib.utils import ImageReader
@@ -20,6 +21,8 @@ app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
 app.config['ALLOWED_IMAGE_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
+app.config['ALLOWED_DOCX_EXTENSIONS'] = {'docx', 'doc'}
+
 
 
 def allowed_file(filename):
@@ -29,6 +32,8 @@ def allowed_file(filename):
 def allowed_image(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_IMAGE_EXTENSIONS']
 
+def allowed_docx(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in app.config['ALLOWED_DOCX_EXTENSIONS']
 
 def create_text_watermark(text, output_path, width, height):
     """Crée un PDF temporaire de la taille exacte demandée avec un filigrane"""
@@ -140,6 +145,100 @@ def upload_files():
 
     return jsonify({'files': uploaded_files})
 
+
+@app.route('/api/docx_to_pdf', methods=['POST'])
+def docx_to_pdf_action():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier fourni'}), 400
+
+    file = request.files['file']
+    if not file or not allowed_docx(file.filename):
+        return jsonify({'error': 'Fichier Word (.docx ou .doc) requis'}), 400
+
+    try:
+        timestamp = datetime.now().strftime('%H%M%S')
+        clean_name = secure_filename(file.filename)
+
+        # Chemins des fichiers
+        input_filename = f"src_docx_{timestamp}_{clean_name}"
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], input_filename)
+
+        # Sauvegarde du fichier DOCX
+        file.save(input_path)
+
+        # --- ÉTAPE 1 : Conversion DOCX -> HTML avec Mammoth ---
+        with open(input_path, "rb") as docx_file:
+            # Convertit le docx en HTML brut
+            result = mammoth.convert_to_html(docx_file)
+            html_content = result.value
+            messages = result.messages  # Warnings éventuels
+
+        # --- ÉTAPE 2 : Ajout de style CSS pour le PDF ---
+        # On ajoute une structure HTML de base et du CSS pour que le PDF soit joli
+        full_html = f"""
+        <html>
+        <head>
+            <style>
+                @page {{
+                    size: A4;
+                    margin: 2cm;
+                }}
+                body {{
+                    font-family: Helvetica, Arial, sans-serif;
+                    font-size: 12pt;
+                    line-height: 1.5;
+                    color: #333;
+                }}
+                h1, h2, h3 {{ color: #2c3e50; margin-top: 20px; }}
+                table {{
+                    border-collapse: collapse;
+                    width: 100%;
+                    margin-bottom: 20px;
+                }}
+                td, th {{
+                    border: 1px solid #ddd;
+                    padding: 8px;
+                    text-align: left;
+                }}
+                img {{
+                    max-width: 100%;
+                    height: auto;
+                }}
+            </style>
+        </head>
+        <body>
+            {html_content}
+        </body>
+        </html>
+        """
+
+        # --- ÉTAPE 3 : Conversion HTML -> PDF avec xhtml2pdf ---
+        output_filename = f"converted_{timestamp}_{os.path.splitext(clean_name)[0]}.pdf"
+        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+
+        with open(output_path, "wb") as pdf_file:
+            pisa_status = pisa.CreatePDF(
+                src=full_html,  # Le contenu HTML
+                dest=pdf_file  # Le fichier de destination
+            )
+
+        # Vérification des erreurs
+        if pisa_status.err:
+            return jsonify({'error': 'Erreur lors de la génération du PDF'}), 500
+
+        # Nom pour le téléchargement
+        download_name = os.path.splitext(clean_name)[0] + ".pdf"
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'downloadName': download_name
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/merge', methods=['POST'])
 def merge_action():
