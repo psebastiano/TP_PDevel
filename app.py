@@ -55,6 +55,14 @@ def home():
 def pdf_to_docx_interface():
     return render_template('pdf_to_docx.html')
 
+@app.route('/tool/docx_to_pdf')
+def docx_to_pdf_interface():
+    return render_template('docx_to_pdf.html')
+
+@app.route('/tool/organize')
+def organize_interface():
+    return render_template('organize.html')
+
 @app.route('/tool/watermark')
 def watermark_interface():
     return render_template('watermark.html')
@@ -295,6 +303,63 @@ def sign_pdf_action():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@app.route('/api/organize', methods=['POST'])
+def reorder_action():
+    """Reorder pages of a PDF based on a provided index list."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier fourni'}), 400
+
+    file = request.files['file']
+    # L'ordre est envoyé sous forme de chaîne "0,2,1,3..."
+    order_string = request.form.get('order', '')
+
+    if not file or not allowed_file(file.filename):
+        return jsonify({'error': 'Fichier PDF invalide'}), 400
+
+    if not order_string:
+        return jsonify({'error': 'Ordre des pages manquant'}), 400
+
+    try:
+        # Convertir la chaîne "0,2,1" en liste d'entiers [0, 2, 1]
+        page_order = [int(x) for x in order_string.split(',') if x.strip().isdigit()]
+
+        timestamp = datetime.now().strftime('%H%M%S')
+        clean_name = secure_filename(file.filename)
+
+        # Sauvegarde temporaire pour lecture
+        temp_input = f"reorder_src_{timestamp}_{clean_name}"
+        input_path = os.path.join(app.config['UPLOAD_FOLDER'], temp_input)
+        file.save(input_path)
+
+        reader = PdfReader(input_path)
+        writer = PdfWriter()
+
+        total_pages = len(reader.pages)
+
+        # Reconstruction du PDF dans le nouvel ordre
+        for index in page_order:
+            if 0 <= index < total_pages:
+                writer.add_page(reader.pages[index])
+            else:
+                print(f"Index de page invalide ignoré : {index}")
+
+        output_filename = f"reordered_{timestamp}_{clean_name}"
+        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+        download_name = f"reorganise_{clean_name}"
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'downloadName': download_name
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 @app.route('/api/merge_advanced', methods=['POST'])
 def merge_advanced_action():
     """Merge multiple PDF groups into separate PDFs.

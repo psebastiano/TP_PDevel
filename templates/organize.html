@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Organiser PDF</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.min.js"></script>
+    <script>
+        // Configuration indispensable du worker PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.16.105/pdf.worker.min.js';
+    </script>
+
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
+        .container { max-width: 1100px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
+        h1 { text-align: center; color: #333; margin-bottom: 10px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 30px; font-size: 0.9em; }
+
+        /* Zone d'upload */
+        .upload-area {
+            border: 3px dashed #667eea; border-radius: 15px; padding: 40px; text-align: center;
+            background: #f8f9ff; cursor: pointer; transition: 0.3s; margin-bottom: 30px;
+        }
+        .upload-area:hover { background: #eef0ff; border-color: #5a67d8; }
+
+        /* Grille des pages */
+        .grid-pages {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); /* Responsive grid */
+            gap: 20px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f1f2f6;
+            border-radius: 10px;
+            min-height: 200px;
+            border: 1px solid #e1e1e1;
+        }
+
+        /* Carte de page (miniature) */
+        .page-card {
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            cursor: grab;
+            position: relative;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .page-card:hover { transform: translateY(-5px); box-shadow: 0 8px 15px rgba(0,0,0,0.15); border-color: #667eea; }
+        .page-card:active { cursor: grabbing; }
+
+        /* Style quand on déplace un élément */
+        .sortable-ghost { opacity: 0.4; background: #c7d2fe; border: 2px dashed #4f46e5; }
+        .sortable-drag { cursor: grabbing; opacity: 1; background: white; }
+
+        .page-canvas { width: 100%; height: auto; display: block; pointer-events: none; }
+
+        .page-number {
+            text-align: center; padding: 10px; font-weight: bold; color: #555; background: #fff;
+            border-top: 1px solid #eee; font-size: 0.9em;
+            display: flex; justify-content: space-between; padding: 8px 15px;
+        }
+        .page-badge { background: #667eea; color: white; border-radius: 50%; width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center; font-size: 0.8em; }
+
+        /* Bouton principal */
+        button.action-btn {
+            width: 100%; padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; border-radius: 10px;
+            font-size: 1.1em; cursor: pointer; font-weight: 600;
+            display: none; /* Caché au début */
+        }
+        button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
+
+        /* Loader & Resultat */
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .download-zone { text-align: center; margin-top: 20px; display: none; }
+        .download-link { background: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; display: inline-block; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Retour Accueil</a>
+
+    <div class="container">
+        <h1>📑 Organiser le PDF</h1>
+        <p class="subtitle">Glissez les pages pour changer l'ordre, puis validez.</p>
+
+        <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <span style="font-size: 3em;">📂</span>
+            <h3>Cliquez ou glissez votre PDF ici</h3>
+            <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+        </div>
+
+        <div id="gridContainer" class="grid-pages" style="display:none;"></div>
+
+        <button id="processBtn" class="action-btn" onclick="saveNewOrder()">Enregistrer le nouvel ordre</button>
+
+        <div id="loader" class="loader"></div>
+        <div id="result" class="download-zone"></div>
+    </div>
+
+    <script>
+        let currentFile = null;
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const gridContainer = document.getElementById('gridContainer');
+        const processBtn = document.getElementById('processBtn');
+        const loader = document.getElementById('loader');
+        const resultDiv = document.getElementById('result');
+
+        // Initialisation de SortableJS
+        new Sortable(gridContainer, {
+            animation: 150,
+            ghostClass: 'sortable-ghost',
+            dragClass: 'sortable-drag'
+        });
+
+        // --- GESTION DRAG & DROP FICHIER ---
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+        });
+
+        dropZone.addEventListener('dragenter', () => dropZone.style.background = '#e0e7ff');
+        dropZone.addEventListener('dragleave', () => dropZone.style.background = '#f8f9ff');
+
+        dropZone.addEventListener('drop', (e) => loadPDF(e.dataTransfer.files[0]));
+        fileInput.addEventListener('change', (e) => loadPDF(e.target.files[0]));
+
+        // --- CHARGEMENT ET RENDU DU PDF ---
+        async function loadPDF(file) {
+            if (!file || file.type !== 'application/pdf') {
+                alert("Veuillez sélectionner un fichier PDF valide.");
+                return;
+            }
+            currentFile = file;
+
+            // Mise à jour UI
+            dropZone.style.display = 'none';
+            gridContainer.style.display = 'grid';
+            gridContainer.innerHTML = '';
+            loader.style.display = 'block';
+            processBtn.style.display = 'none';
+            resultDiv.style.display = 'none';
+
+            try {
+                // Lecture du fichier via PDF.js
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+                const totalPages = pdf.numPages;
+
+                for (let i = 1; i <= totalPages; i++) {
+                    const page = await pdf.getPage(i);
+                    const viewport = page.getViewport({ scale: 0.4 }); // Echelle réduite pour miniatures
+
+                    // 1. Création de la carte
+                    const card = document.createElement('div');
+                    card.className = 'page-card';
+                    // Important : on stocke l'index original (0-based pour python)
+                    card.setAttribute('data-original-index', i - 1);
+
+                    // 2. Création du Canvas
+                    const canvas = document.createElement('canvas');
+                    canvas.className = 'page-canvas';
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+
+                    // 3. Footer de la carte
+                    const footer = document.createElement('div');
+                    footer.className = 'page-number';
+                    footer.innerHTML = `<span>Page</span> <span class="page-badge">${i}</span>`;
+
+                    card.appendChild(canvas);
+                    card.appendChild(footer);
+                    gridContainer.appendChild(card);
+
+                    // 4. Rendu de l'image
+                    const renderContext = {
+                        canvasContext: canvas.getContext('2d'),
+                        viewport: viewport
+                    };
+                    await page.render(renderContext).promise;
+                }
+
+                loader.style.display = 'none';
+                processBtn.style.display = 'block';
+
+            } catch (err) {
+                console.error(err);
+                alert("Erreur lors de la lecture du PDF. Est-il protégé ?");
+                loader.style.display = 'none';
+                dropZone.style.display = 'block';
+                dropZone.style.background = '#f8f9ff';
+            }
+        }
+
+        // --- ENVOI AU SERVEUR ---
+        async function saveNewOrder() {
+            if (!currentFile) return;
+
+            processBtn.disabled = true;
+            processBtn.innerText = "Génération du PDF...";
+            loader.style.display = 'block';
+            resultDiv.style.display = 'none';
+
+            // Récupérer l'ordre actuel des éléments dans le DOM
+            const cards = document.querySelectorAll('.page-card');
+            // On extrait l'attribut 'data-original-index' dans l'ordre visuel
+            const newOrder = Array.from(cards).map(card => card.getAttribute('data-original-index'));
+
+            const formData = new FormData();
+            formData.append('file', currentFile);
+            formData.append('order', newOrder.join(',')); // "0,2,1,5..."
+
+            try {
+                // Notez l'URL qui correspond à votre app.py
+                const res = await fetch('/api/organize', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <p style="color:green; font-weight:bold; margin-bottom:15px; font-size:1.1em;">✅ PDF Réorganisé !</p>
+                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-link">
+                            ⬇️ Télécharger le résultat
+                        </a>
+                        <br><br>
+                        <a href="/tool/organize" style="color:#666; font-size:0.9em; text-decoration:none;">↺ Recommencer</a>
+                    `;
+                    resultDiv.style.display = 'block';
+                    processBtn.style.display = 'none';
+                } else {
+                    alert('Erreur serveur : ' + data.error);
+                    processBtn.disabled = false;
+                    processBtn.innerText = "Enregistrer le nouvel ordre";
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Erreur technique lors de la requête');
+                processBtn.disabled = false;
+                processBtn.innerText = "Enregistrer le nouvel ordre";
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
