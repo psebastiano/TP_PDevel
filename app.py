@@ -50,7 +50,6 @@ def home():
     return render_template('home.html')
 
 
-
 @app.route('/tool/watermark')
 def watermark_interface():
     return render_template('watermark.html')
