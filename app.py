@@ -424,6 +424,51 @@ def split_action():
         return jsonify({'error': str(e)}), 500
 
 
+def create_text_watermark(text, output_path, width, height):
+    """Crée un PDF temporaire couvrant toute la page avec un texte répété en diagonale."""
+    w = float(width)
+    h = float(height)
+    c = canvas.Canvas(output_path, pagesize=(w, h))
+
+    # Style du motif
+    angle = 45
+    font_name = "Helvetica-Bold"
+    # Taille de police proportionnelle à la page (~6% du côté le plus court)
+    font_size = max(14, int(min(w, h) * 0.06))
+    c.setFont(font_name, font_size)
+    # Couleur avec transparence légère
+    c.setFillColor(colors.Color(0, 0, 0, alpha=0.12))
+
+    # Rotation au centre pour un motif diagonal
+    c.saveState()
+    c.translate(w / 2.0, h / 2.0)
+    c.rotate(angle)
+
+    # Espacements en fonction de la taille du texte
+    text_w = c.stringWidth(text, font_name, font_size)
+    x_step = max(120.0, text_w * 1.2)
+    y_step = max(80.0, font_size * 2.5)
+
+    # Couvrir une zone plus grande que la page
+    cols = int((w * 2) / x_step) + 3
+    rows = int((h * 2) / y_step) + 3
+
+    start_col = -cols // 2
+    end_col = cols // 2
+    start_row = -rows // 2
+    end_row = rows // 2
+
+    for r in range(start_row, end_row + 1):
+        y = r * y_step
+        # Décalage en quinconce pour mieux remplir
+        offset = (r % 2) * (x_step / 2.0)
+        for cidx in range(start_col, end_col + 1):
+            x = cidx * x_step + offset
+            c.drawCentredString(x, y, text)
+
+    c.restoreState()
+    c.save()
+
 @app.route('/api/watermark', methods=['POST'])
 def watermark_action():
     """Apply a text watermark to one or multiple PDF files.
@@ -459,38 +504,41 @@ def watermark_action():
 
     try:
         for index, file in enumerate(files):
-            if file and allowed_file(file.filename):
-                filename = secure_filename(file.filename)
-                source_path = os.path.join(app.config['UPLOAD_FOLDER'], f"src_{index}_{timestamp_global}_{filename}")
-                file.save(source_path)
+            if not file or not allowed_file(file.filename):
+                continue
 
-                source_reader = PdfReader(source_path)
-                first_page = source_reader.pages[0]
-                page_width = first_page.mediabox.width
-                page_height = first_page.mediabox.height
+            filename = secure_filename(file.filename)
+            source_path = os.path.join(app.config['UPLOAD_FOLDER'], f"src_{index}_{timestamp_global}_{filename}")
+            file.save(source_path)
 
-                watermark_pdf_name = f"wm_temp_{index}_{timestamp_global}.pdf"
-                watermark_path = os.path.join(app.config['UPLOAD_FOLDER'], watermark_pdf_name)
-                create_text_watermark(watermark_text, watermark_path, page_width, page_height)
+            source_reader = PdfReader(source_path)
+            writer = PdfWriter()
 
-                watermark_reader = PdfReader(watermark_path)
-                watermark_page = watermark_reader.pages[0]
-                writer = PdfWriter()
+            # Générer un filigrane adapté à CHAQUE page (dimensions exactes)
+            for page_i, page in enumerate(source_reader.pages):
+                page_width = float(page.mediabox.width)
+                page_height = float(page.mediabox.height)
 
-                for page in source_reader.pages:
-                    page.merge_page(watermark_page)
-                    writer.add_page(page)
+                wm_pdf_name = f"wm_temp_{index}_{page_i}_{timestamp_global}.pdf"
+                wm_path = os.path.join(app.config['UPLOAD_FOLDER'], wm_pdf_name)
+                create_text_watermark(watermark_text, wm_path, page_width, page_height)
 
-                output_filename = f"WM_{filename}"
-                output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"out_{index}_{timestamp_global}_{filename}")
+                wm_reader = PdfReader(wm_path)
+                wm_page = wm_reader.pages[0]
 
-                with open(output_path, "wb") as f:
-                    writer.write(f)
+                page.merge_page(wm_page)
+                writer.add_page(page)
 
-                processed_files.append({
-                    'path': output_path,
-                    'download_name': output_filename
-                })
+            output_filename = f"WM_{filename}"
+            output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"out_{index}_{timestamp_global}_{filename}")
+
+            with open(output_path, "wb") as f:
+                writer.write(f)
+
+            processed_files.append({
+                'path': output_path,
+                'download_name': output_filename
+            })
 
         if not processed_files:
             return jsonify({'error': 'Aucun fichier valide traité'}), 400
