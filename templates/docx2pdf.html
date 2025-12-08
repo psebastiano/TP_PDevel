@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>DOCX vers PDF</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 40px 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 700px;
+            background: #ffffff;
+            border-radius: 22px;
+            padding: 40px 45px;
+            margin-top: 30px;
+            box-shadow: 0 25px 80px rgba(0, 0, 0, 0.28);
+            animation: fadeIn 0.5s ease-in-out;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .back {
+            font-size: 0.95em;
+            text-decoration: none;
+            color: #4a4a4a;
+            margin-bottom: 15px;
+            display: inline-block;
+            transition: 0.2s;
+        }
+
+        .back:hover {
+            transform: translateX(-4px);
+            color: #222;
+        }
+
+        h1 {
+            font-size: 2.4em;
+            text-align: center;
+            color: #333;
+            margin-bottom: 12px;
+        }
+
+        .subtitle {
+            text-align: center;
+            font-size: 1.15em;
+            color: #666;
+            margin-bottom: 35px;
+        }
+
+        /* Upload Zone */
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 18px;
+            background: #f8f9ff;
+            padding: 55px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.3s ease-in-out;
+        }
+
+        .upload-area:hover {
+            background: #eef0ff;
+            border-color: #764ba2;
+            transform: scale(1.02);
+        }
+
+        .upload-area input { display: none; }
+
+        .filename {
+            text-align:center;
+            margin-top: 18px;
+            color:#444;
+            font-size: 1.05em;
+            font-weight: 500;
+        }
+
+        /* Buttons */
+        .btn {
+            width: 100%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border: none;
+            border-radius: 30px;
+            padding: 15px 0;
+            margin-top: 30px;
+            font-size: 1.15em;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 10px 25px rgba(102,126,234,0.4);
+            transition: 0.3s;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 30px rgba(102,126,234,0.6);
+        }
+
+        /* Error Messages */
+        .messages {
+            text-align:center;
+            margin-top: 15px;
+            color: #c0392b;
+            font-size: 0.95em;
+        }
+
+    </style>
+</head>
+
+<body>
+
+<div class="container">
+
+    <a href="/" class="back">&larr; Retour à l'accueil</a>
+
+    <h1>DOCX vers PDF</h1>
+    <p class="subtitle">Convertissez rapidement vos fichiers Word en documents PDF.</p>
+
+    {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="messages">
+          {% for msg in messages %}
+              <div>{{ msg }}</div>
+          {% endfor %}
+      </div>
+    {% endif %}
+    {% endwith %}
+
+    <form method="POST" enctype="multipart/form-data">
+        <label class="upload-area" id="uploadArea">
+            <div style="font-size: 1.5em; margin-bottom: 10px;">📄 Déposez votre fichier ici</div>
+            <div style="color:#667eea; font-size: 1em; font-weight:600;">ou cliquez pour sélectionner</div>
+            <input type="file" id="fileInput" name="file" accept=".docx">
+        </label>
+
+        <div class="filename" id="fileName">Aucun fichier sélectionné.</div>
+
+        <button class="btn" type="submit">Convertir en PDF</button>
+    </form>
+
+</div>
+
+<script>
+    const uploadArea = document.getElementById("uploadArea");
+    const fileInput  = document.getElementById("fileInput");
+    const fileName   = document.getElementById("fileName");
+
+    uploadArea.addEventListener("click", () => fileInput.click());
+
+    uploadArea.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        uploadArea.style.background = "#eef0ff";
+    });
+
+    uploadArea.addEventListener("dragleave", () => {
+        uploadArea.style.background = "#f8f9ff";
+    });
+
+    uploadArea.addEventListener("drop", (e) => {
+        e.preventDefault();
+        uploadArea.style.background = "#f8f9ff";
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            // Fix PRO pour éviter مشاكل الرفع لأول مرة
+            const dt = new DataTransfer();
+            dt.items.add(files[0]);
+            fileInput.files = dt.files;
+
+            fileName.textContent = files[0].name;
+        }
+    });
+
+    fileInput.addEventListener("change", () => {
+        fileName.textContent = fileInput.files.length > 0
+            ? fileInput.files[0].name
+            : "Aucun fichier sélectionné.";
+    });
+</script>
+
+</body>
+</html>

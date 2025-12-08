@@ -11,12 +11,21 @@ import zipfile
 from pdf2image import convert_from_path
 import io
 import math
+import pythoncom
+from docx2pdf import convert
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
 app.config['ALLOWED_EXTENSIONS'] = {'pdf'}
 app.config['ALLOWED_IMAGE_EXTENSIONS'] = {'png', 'jpg', 'jpeg'}
+# --- DOCX TO PDF FOLDERS ---
+DOCX_UPLOAD = os.path.join(tempfile.gettempdir(), "docx_uploads")
+PDF_OUTPUT = os.path.join(tempfile.gettempdir(), "pdf_outputs")
+
+os.makedirs(DOCX_UPLOAD, exist_ok=True)
+os.makedirs(PDF_OUTPUT, exist_ok=True)
+
 
 
 def allowed_file(filename):
@@ -878,6 +887,50 @@ def download_file(filename):
         return send_file(filepath, as_attachment=True, download_name=download_name)
     return jsonify({'error': 'Fichier introuvable'}), 404
 
+ALLOWED_DOCX = {'docx'}
+
+def allowed_docx(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_DOCX
+
+
+from docx2pdf import convert
+import pythoncom
+
+@app.route('/docx2pdf', methods=['GET', 'POST'])
+def docx_to_pdf():
+    if request.method == 'POST':
+        if 'file' not in request.files:
+            return jsonify({'error': 'Aucun fichier envoyé'}), 400
+
+        file = request.files['file']
+
+        if file.filename == '':
+            return jsonify({'error': 'Veuillez sélectionner un fichier .docx'}), 400
+
+        if allowed_docx(file.filename):
+            filename = secure_filename(file.filename)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            docx_filename = f"{timestamp}_{filename}"
+            docx_path = os.path.join(DOCX_UPLOAD, docx_filename)
+            file.save(docx_path)
+
+            pdf_filename = docx_filename.replace('.docx', '.pdf')
+            pdf_path = os.path.join(PDF_OUTPUT, pdf_filename)
+
+            try:
+                pythoncom.CoInitialize()      # ← الحل هنا
+                convert(docx_path, pdf_path)
+                pythoncom.CoUninitialize()
+
+                return send_file(pdf_path, as_attachment=True, download_name=pdf_filename)
+
+            except Exception as e:
+                pythoncom.CoUninitialize()
+                return jsonify({'error': 'Erreur de conversion: ' + str(e)}), 500
+
+        return jsonify({'error': 'Format non supporté (seulement .docx)'}), 400
+
+    return render_template('docx2pdf.html')
 
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
