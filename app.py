@@ -1,5 +1,6 @@
 import PyPDF2
 from flask import Flask, render_template, request, send_file, jsonify
+from pdf2docx import Converter
 from reportlab.lib.utils import ImageReader
 from werkzeug.utils import secure_filename
 import os
@@ -49,6 +50,10 @@ def create_text_watermark(text, output_path, width, height):
 def home():
     return render_template('home.html')
 
+
+@app.route('/tool/pdf-to-docx')
+def pdf_to_docx_interface():
+    return render_template('pdf_to_docx.html')
 
 @app.route('/tool/watermark')
 def watermark_interface():
@@ -830,6 +835,41 @@ def check_pdf_pages():
 
 # --- AJOUTER DANS LA SECTION ROUTES API ---
 
+@app.route('/api/pdf-to-docx', methods=['POST'])
+def pdf_to_docx_action():
+    data = request.json or {}
+    filename = data.get('file')
+    output_name = data.get('outputName', '').strip()
+
+    if not filename:
+        return jsonify({'error': 'Aucun fichier PDF fourni'}), 400
+
+    pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(pdf_path):
+        return jsonify({'error': 'Fichier introuvable'}), 404
+
+    base_name = secure_filename(output_name) or 'document_converti'
+    if not base_name.lower().endswith('.docx'):
+        download_name = f"{base_name}.docx"
+    else:
+        download_name = base_name
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    internal_filename = f"{os.path.splitext(download_name)[0]}_{timestamp}.docx"
+    internal_path = os.path.join(app.config['UPLOAD_FOLDER'], internal_filename)
+
+    try:
+        converter = Converter(pdf_path)
+        converter.convert(internal_path, start=0, end=None)
+        converter.close()
+    except Exception as e:
+        return jsonify({'error': f'Conversion impossible: {e}'}), 500
+
+    return jsonify({
+        'success': True,
+        'filename': internal_filename,
+        'downloadName': download_name
+    })
 @app.route('/api/pdf_to_jpeg', methods=['POST'])
 def pdf_to_jpeg_action():
     """Convert a PDF (up to 30 pages) into JPEG images and return as a ZIP.
