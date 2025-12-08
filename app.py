@@ -1,3 +1,4 @@
+import PyPDF2
 from flask import Flask, render_template, request, send_file, jsonify
 from reportlab.lib.utils import ImageReader
 from werkzeug.utils import secure_filename
@@ -11,6 +12,7 @@ import zipfile
 from pdf2image import convert_from_path
 import io
 import math
+
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
@@ -83,6 +85,9 @@ def signature_interface():
     return render_template('sign.html')
 
 
+@app.route('/tool/view')
+def view_interface():
+    return render_template('view.html')
 @app.route('/tool/pdf_to_jpeg')
 def pdf_to_jpeg_interface():
     return render_template('pdf_to_jpeg.html')
@@ -133,7 +138,7 @@ def merge_action():
         outputName (str, optional): Base name for the merged PDF.
 
     Returns:
-        JSON: 
+        JSON:
             - success (bool): True if merge succeeded.
             - filename (str): Server filename of merged PDF.
             - downloadName (str): Suggested download name.
@@ -285,7 +290,7 @@ def sign_pdf_action():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-    
+
 @app.route('/api/merge_advanced', methods=['POST'])
 def merge_advanced_action():
     """Merge multiple PDF groups into separate PDFs.
@@ -808,8 +813,6 @@ def pdf_to_jpeg_action():
         return jsonify({'error': 'Format de fichier invalide'}), 400
 
     try:
-        # Nécessite l'installation de pdf2image : pip install pdf2image
-        # Et Poppler doit être installé sur le système.
 
 
         timestamp = datetime.now().strftime('%H%M%S')
@@ -856,7 +859,6 @@ def pdf_to_jpeg_action():
         return jsonify({'error': 'Le module pdf2image est manquant sur le serveur.'}), 500
     except Exception as e:
         return jsonify({'error': f"Erreur de conversion : {str(e)}"}), 500
-
 
 @app.route('/download/<filename>')
 def download_file(filename):
