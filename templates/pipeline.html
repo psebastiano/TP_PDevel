@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Pipeline PDF Automatisé</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <style>
+        /* Styles CSS inchangés - je reprends la version "scroll" corrigée */
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 20px; display: flex; flex-direction: column; height: 100vh; margin: 0; box-sizing: border-box; }
+        .header { margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
+        .back-link { color: #667eea; text-decoration: none; font-weight: bold; }
+        .main-layout { display: flex; gap: 30px; flex: 1; overflow: hidden; min-height: 0; }
+        .toolbox { width: 300px; min-width: 300px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow-y: auto; height: 100%; box-sizing: border-box; }
+        .toolbox h3 { margin-top: 0; color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; flex-shrink: 0; }
+        .tool-item { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px; cursor: grab; display: flex; align-items: center; gap: 10px; font-weight: 600; color: #555; transition: 0.2s; user-select: none; flex-shrink: 0; }
+        .tool-item:hover { border-color: #667eea; background: #eef2ff; transform: translateX(5px); }
+        .tool-icon { font-size: 1.2em; }
+        .pipeline-area { flex: 1; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow-y: auto; height: 100%; box-sizing: border-box; }
+        .upload-section { border: 2px dashed #667eea; background: #f8f9ff; padding: 20px; text-align: center; border-radius: 10px; margin-bottom: 20px; cursor: pointer; transition: 0.3s; flex-shrink: 0; }
+        .upload-section:hover { background: #e0e7ff; }
+        .pipeline-dropzone { flex-grow: 1; background: #f0f2f5; border: 2px dashed #ccc; border-radius: 10px; padding: 20px; min-height: 200px; display: flex; flex-direction: column; gap: 15px; height: auto; overflow: visible; flex-shrink: 0; }
+        .pipeline-dropzone.empty::after { content: 'Glissez les outils ici pour créer votre chaîne...'; color: #999; display: block; text-align: center; margin-top: 50px; }
+        .pipeline-block { background: white; border-left: 5px solid #667eea; padding: 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); position: relative; animation: fadeIn 0.3s; flex-shrink: 0; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .block-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 10px; color: #333; }
+        .remove-block { color: #ff4757; cursor: pointer; border: none; background: none; font-size: 1.2em; font-weight: bold; }
+        .block-config { display: flex; gap: 15px; flex-wrap: wrap; background: #f9f9f9; padding: 10px; border-radius: 5px; align-items: center; }
+        .input-group { display: flex; flex-direction: column; flex: 1; min-width: 150px; }
+        .input-group label { font-size: 0.8em; color: #666; margin-bottom: 4px; font-weight: 600; }
+        input[type="text"], input[type="number"], select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box; }
+        .file-status { font-size: 0.8em; color: green; display: none; margin-top: 5px; font-weight: bold; }
+        .run-btn { background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white; border: none; padding: 15px; font-size: 1.2em; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 20px; width: 100%; transition: 0.3s; flex-shrink: 0; margin-bottom: 20px; }
+        .run-btn:disabled { background: #ccc; cursor: not-allowed; }
+        #resultArea { flex-shrink: 0; padding-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <a href="/" class="back-link">← Retour Accueil</a>
+        <h2 style="margin:0; color:#333;">⛓️ Pipeline de Traitement PDF</h2>
+        <div style="width: 100px;"></div>
+    </div>
+
+    <div class="main-layout">
+        <div class="toolbox">
+            <h3>🧰 Outils</h3>
+            <div id="toolboxList">
+                <div class="tool-item" data-type="rotate">
+                    <span class="tool-icon">🔄</span> Rotation
+                </div>
+                <div class="tool-item" data-type="watermark">
+                    <span class="tool-icon">©️</span> Filigrane
+                </div>
+                <div class="tool-item" data-type="signature">
+                    <span class="tool-icon">✍️</span> Signature
+                </div>
+                <div class="tool-item" data-type="split">
+                    <span class="tool-icon">🔪</span> Diviser (ZIP)
+                </div>
+                <div class="tool-item" data-type="pdf2jpeg">
+                    <span class="tool-icon">🖼️</span> PDF vers JPEG (ZIP)
+                </div>
+            </div>
+        </div>
+
+        <div class="pipeline-area">
+            <div class="upload-section" onclick="document.getElementById('fileInput').click()">
+                <div id="fileLabel">📁 <b>Départ :</b> Cliquez pour charger le PDF principal</div>
+                <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+            </div>
+
+            <h3 style="color:#555;">Flux de traitement</h3>
+            <div id="pipelineList" class="pipeline-dropzone empty"></div>
+
+            <button id="runBtn" class="run-btn" disabled onclick="runPipeline()">🚀 Lancer le Pipeline</button>
+            <div id="resultArea"></div>
+        </div>
+    </div>
+
+    <script>
+        const toolbox = document.getElementById('toolboxList');
+        const pipeline = document.getElementById('pipelineList');
+        let currentFile = null;
+
+        new Sortable(toolbox, { group: { name: 'shared', pull: 'clone', put: false }, sort: false, animation: 150 });
+        new Sortable(pipeline, {
+            group: 'shared', animation: 150,
+            onAdd: (evt) => {
+                pipeline.classList.remove('empty');
+                renderBlockConfig(evt.item, evt.item.getAttribute('data-type'));
+                updateRunButton();
+            },
+            onUpdate: () => updateRunButton(),
+            onRemove: () => {
+                if(pipeline.children.length === 0) pipeline.classList.add('empty');
+                updateRunButton();
+            }
+        });
+
+        document.getElementById('fileInput').addEventListener('change', (e) => {
+            if(e.target.files[0]?.type === 'application/pdf') {
+                currentFile = e.target.files[0];
+                document.getElementById('fileLabel').innerHTML = `✅ Fichier : <b>${currentFile.name}</b>`;
+                document.querySelector('.upload-section').style.borderColor = '#2ecc71';
+                document.querySelector('.upload-section').style.background = '#e8f5e9';
+                updateRunButton();
+            }
+        });
+
+        function updateRunButton() {
+            document.getElementById('runBtn').disabled = !(currentFile && pipeline.children.length > 0);
+        }
+
+        function renderBlockConfig(element, type) {
+            let configHTML = '';
+            let title = '';
+            let color = '#667eea';
+
+            if (type === 'split') {
+                title = '🔪 Diviser';
+                color = '#e74c3c';
+                // J'ai retiré le SELECT pour choisir la partie.
+                configHTML = `
+                    <div class="input-group">
+                        <label>Couper après la page :</label>
+                        <input type="number" class="param-page" value="1" min="1">
+                    </div>
+                    <div style="width:100%; color:#555; font-size:0.9em; margin-top:5px; background:#fff3cd; padding:5px; border-radius:4px;">
+                        📦 Génère une archive <b>ZIP</b> contenant les deux parties.
+                    </div>
+                    <div style="width:100%; color:#e74c3c; font-size:0.8em; margin-top:5px;">⚠️ Doit être en dernière position.</div>`;
+            }
+            else if (type === 'pdf2jpeg') {
+                title = '🖼️ PDF vers JPEG';
+                color = '#9b59b6';
+                configHTML = `<div style="color:#666; font-size:0.9em; padding:5px;">⚠️ Convertit en images ZIP. Doit être en dernière position.</div>`;
+            }
+            else if (type === 'rotate') {
+                title = '🔄 Rotation';
+                configHTML = `
+                    <div class="input-group">
+                        <label>Angle</label>
+                        <select class="param-angle">
+                            <option value="90">90° Horaire</option>
+                            <option value="-90">90° Anti-horaire</option>
+                            <option value="180">180°</option>
+                        </select>
+                    </div>`;
+            } else if (type === 'watermark') {
+                title = '©️ Filigrane';
+                configHTML = `
+                    <div class="input-group" style="flex:2;">
+                        <label>Texte</label>
+                        <input type="text" class="param-text" value="CONFIDENTIEL">
+                    </div>`;
+            } else if (type === 'signature') {
+                title = '✍️ Signature';
+                color = '#e67e22';
+                configHTML = `
+                    <div class="input-group">
+                        <label>Position</label>
+                        <select class="param-pos">
+                            <option value="bottom-right">Bas Droite</option>
+                            <option value="bottom-left">Bas Gauche</option>
+                        </select>
+                    </div>
+                    <div class="input-group" style="flex:2;">
+                        <label>Image (PNG)</label>
+                        <input type="file" accept="image/png" onchange="handleFileUpload(this)">
+                        <input type="hidden" class="param-file-data">
+                        <div class="file-status">Image chargée !</div>
+                    </div>`;
+            }
+
+            element.className = 'pipeline-block';
+            element.style.borderLeftColor = color;
+            element.setAttribute('data-action-type', type);
+            element.innerHTML = `
+                <div class="block-header">
+                    <span style="color:${color}">${title}</span>
+                    <button class="remove-block" onclick="this.closest('.pipeline-block').remove(); updateRunButton();">✖</button>
+                </div>
+                <div class="block-config">${configHTML}</div>
+            `;
+        }
+
+        function handleFileUpload(input) {
+            const file = input.files[0];
+            if(file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const block = input.closest('.block-config');
+                    block.querySelector('.param-file-data').value = e.target.result;
+                    block.querySelector('.file-status').style.display = 'block';
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        async function runPipeline() {
+            const btn = document.getElementById('runBtn');
+            const resultArea = document.getElementById('resultArea');
+            const blocks = document.querySelectorAll('#pipelineList .pipeline-block');
+            const actions = [];
+
+            for (let i = 0; i < blocks.length; i++) {
+                const block = blocks[i];
+                const type = block.getAttribute('data-action-type');
+
+                // VALIDATION : ZIP si fin de chaîne
+                if ((type === 'split' || type === 'pdf2jpeg') && i !== blocks.length - 1) {
+                    alert(`⚠️ Erreur de logique :\n\nL'outil "${type === 'split' ? 'Diviser' : 'PDF vers JPEG'}" génère un ZIP final.\nIl doit être en DERNIÈRE position.`);
+                    return;
+                }
+
+                const actionData = { type: type };
+
+                if (type === 'rotate') {
+                    actionData.angle = parseInt(block.querySelector('.param-angle').value);
+                } else if (type === 'watermark') {
+                    actionData.text = block.querySelector('.param-text').value;
+                } else if (type === 'split') {
+                    // On ne récupère plus "keep", juste la page
+                    actionData.splitPage = parseInt(block.querySelector('.param-page').value);
+                } else if (type === 'signature') {
+                    actionData.position = block.querySelector('.param-pos').value;
+                    actionData.fileData = block.querySelector('.param-file-data').value;
+                    if(!actionData.fileData) { alert("Image de signature manquante"); return; }
+                }
+
+                actions.push(actionData);
+            }
+
+            const formData = new FormData();
+            formData.append('file', currentFile);
+            formData.append('pipeline', JSON.stringify(actions));
+
+            btn.disabled = true;
+            btn.innerText = "⏳ Traitement en cours...";
+            resultArea.innerHTML = '';
+
+            try {
+                const res = await fetch('/api/pipeline', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.success) {
+                    resultArea.innerHTML = `
+                        <h3 style="color: green;">✅ Pipeline terminé !</h3>
+                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}"
+                           style="background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
+                            ⬇️ Télécharger le résultat
+                        </a>`;
+                } else {
+                    alert('Erreur: ' + data.error);
+                }
+            } catch (e) {
+                console.error(e);
+                alert('Erreur technique');
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "🚀 Lancer le Pipeline";
+            }
+        }
+    </script>
+</body>
+</html>

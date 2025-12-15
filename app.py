@@ -1,3 +1,6 @@
+import base64
+import json
+
 import mammoth
 from xhtml2pdf import pisa
 from flask import Flask, render_template, request, send_file, jsonify
@@ -14,7 +17,6 @@ import zipfile
 from pdf2image import convert_from_path
 import io
 import math
-import re
 
 
 app = Flask(__name__)
@@ -56,6 +58,9 @@ def create_text_watermark(text, output_path, width, height):
 def home():
     return render_template('home.html')
 
+@app.route('/tool/pipeline')
+def pipeline_interface():
+    return render_template('pipeline.html')
 
 @app.route('/tool/pdf-to-docx')
 def pdf_to_docx_interface():
@@ -247,6 +252,202 @@ def docx_to_pdf_action():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/pipeline', methods=['POST'])
+def pipeline_action():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier fourni'}), 400
+
+    file = request.files['file']
+    pipeline_json = request.form.get('pipeline', '[]')
+
+    try:
+        actions = json.loads(pipeline_json)
+    except:
+        return jsonify({'error': 'JSON invalide'}), 400
+
+    if not actions:
+        return jsonify({'error': 'Aucune action'}), 400
+
+    try:
+        timestamp = datetime.now().strftime('%H%M%S')
+        current_filename = f"pipe_start_{timestamp}_{secure_filename(file.filename)}"
+        current_path = os.path.join(app.config['UPLOAD_FOLDER'], current_filename)
+        file.save(current_path)
+
+        final_extension = "pdf"
+
+        for i, action in enumerate(actions):
+            # Si l'étape précédente a produit un ZIP, on ne peut plus continuer
+            if final_extension == "zip":
+                return jsonify({
+                                   'error': 'Les blocs "Diviser" ou "PDF vers JPEG" terminent le processus (création ZIP). Ils doivent être en dernière position.'}), 400
+
+            action_type = action.get('type')
+
+            # Diviser et PDF2JPEG produisent maintenant des ZIP
+            step_ext = "zip" if (action_type == 'pdf2jpeg' or action_type == 'split') else "pdf"
+
+            next_filename = f"pipe_step{i}_{timestamp}.{step_ext}"
+            next_path = os.path.join(app.config['UPLOAD_FOLDER'], next_filename)
+
+            process_pipeline_step(action, current_path, next_path)
+
+            current_path = next_path
+            current_filename = next_filename
+            final_extension = step_ext
+
+        return jsonify({
+            'success': True,
+            'filename': current_filename,
+            'downloadName': f"resultat_pipeline.{final_extension}"
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+
+def process_pipeline_step(action, input_path, output_path):
+    action_type = action.get('type')
+
+    # --- CAS 1 : PDF VERS JPEG (ZIP) ---
+    if action_type == 'pdf2jpeg':
+        try:
+            from pdf2image import convert_from_path
+            images = convert_from_path(input_path, dpi=150, fmt='jpeg')
+            with zipfile.ZipFile(output_path, 'w') as zipf:
+                for i, image in enumerate(images, 1):
+                    img_buffer = io.BytesIO()
+                    image.save(img_buffer, format='JPEG', quality=85)
+                    img_buffer.seek(0)
+                    zipf.writestr(f"page_{i:03d}.jpg", img_buffer.read())
+            return
+        except ImportError:
+            raise Exception("Module pdf2image manquant")
+
+    # Lecture PDF standard pour les autres actions
+    try:
+        reader = PdfReader(input_path)
+    except:
+        raise Exception("Impossible de lire le fichier (ce n'est pas un PDF valide).")
+
+    # --- CAS 2 : DIVISER (SPLIT) -> ZIP ---
+    if action_type == 'split':
+        split_page = int(action.get('splitPage', 1))
+        total_pages = len(reader.pages)
+
+        # Sécurité index
+        if split_page < 1: split_page = 1
+        if split_page >= total_pages: split_page = total_pages - 1
+
+        writer1 = PdfWriter()
+        writer2 = PdfWriter()
+
+        # Partie 1
+        for i in range(split_page):
+            writer1.add_page(reader.pages[i])
+
+        # Partie 2
+        for i in range(split_page, total_pages):
+            writer2.add_page(reader.pages[i])
+
+        # On crée les fichiers temporaires pour les zipperr
+        ts = datetime.now().strftime('%f')
+        p1_path = os.path.join(app.config['UPLOAD_FOLDER'], f"split_p1_{ts}.pdf")
+        p2_path = os.path.join(app.config['UPLOAD_FOLDER'], f"split_p2_{ts}.pdf")
+
+        with open(p1_path, "wb") as f1:
+            writer1.write(f1)
+        with open(p2_path, "wb") as f2:
+            writer2.write(f2)
+
+        # Création du ZIP final
+        with zipfile.ZipFile(output_path, 'w') as zipf:
+            zipf.write(p1_path, "partie_1.pdf")
+            zipf.write(p2_path, "partie_2.pdf")
+
+        # Nettoyage
+        try:
+            os.remove(p1_path)
+            os.remove(p2_path)
+        except:
+            pass
+        return
+
+    # --- CAS AUTRES (Un seul PDF en sortie) ---
+    writer = PdfWriter()
+
+    if action_type == 'rotate':
+        angle = int(action.get('angle', 90))
+        for page in reader.pages:
+            page.rotate(angle)
+            writer.add_page(page)
+
+    elif action_type == 'watermark':
+        text = action.get('text', 'CONFIDENTIEL')
+        if len(reader.pages) > 0:
+            p = reader.pages[0]
+            wm_path = input_path + "_wm.pdf"
+            create_text_watermark(text, wm_path, float(p.mediabox.width), float(p.mediabox.height))
+            wm_reader = PdfReader(wm_path)
+            wm_page = wm_reader.pages[0]
+            for page in reader.pages:
+                page.merge_page(wm_page)
+                writer.add_page(page)
+            if os.path.exists(wm_path): os.remove(wm_path)
+        else:
+            for p in reader.pages: writer.add_page(p)
+
+    elif action_type == 'signature':
+        img_data = action.get('fileData', '')
+        pos = action.get('position', 'bottom-right')
+        if img_data and ',' in img_data:
+            try:
+                img_bytes = base64.b64decode(img_data.split(',')[1])
+                ts = datetime.now().strftime('%f')
+                sig_path = os.path.join(app.config['UPLOAD_FOLDER'], f"sig_{ts}.png")
+                with open(sig_path, "wb") as f:
+                    f.write(img_bytes)
+
+                img_obj = ImageReader(sig_path)
+                total_pages = len(reader.pages)
+
+                for i, page in enumerate(reader.pages):
+                    if i == total_pages - 1:
+                        w, h = float(page.mediabox.width), float(page.mediabox.height)
+                        ov_path = sig_path + ".pdf"
+                        c = canvas.Canvas(ov_path, pagesize=(w, h))
+                        tw = w * 0.20
+                        aspect = img_obj.getSize()[1] / img_obj.getSize()[0]
+                        th = tw * aspect
+                        margin = 30
+
+                        if pos == 'bottom-right':
+                            x, y = w - margin - tw, margin
+                        elif pos == 'bottom-left':
+                            x, y = margin, margin
+                        else:
+                            x, y = w - margin - tw, margin
+
+                        c.drawImage(img_obj, x, y, width=tw, height=th, mask='auto')
+                        c.save()
+
+                        ov_reader = PdfReader(ov_path)
+                        page.merge_page(ov_reader.pages[0])
+                        if os.path.exists(ov_path): os.remove(ov_path)
+                    writer.add_page(page)
+                if os.path.exists(sig_path): os.remove(sig_path)
+            except:
+                for p in reader.pages: writer.add_page(p)
+        else:
+            for p in reader.pages: writer.add_page(p)
+    else:
+        # Copie par défaut
+        for p in reader.pages: writer.add_page(p)
+
+    with open(output_path, 'wb') as f:
+        writer.write(f)
 @app.route('/api/merge', methods=['POST'])
 def merge_action():
     """Merge multiple PDF files into a single PDF.
