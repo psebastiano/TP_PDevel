@@ -1,0 +1,10 @@
+#!/bin/sh
+'''exec' "/home/christ/Downloads/Telegram Desktop/M1/M1 Avignon universite/Processus logiciel/TP/TP_PDevel/env/bin/python3" "$0" "$@"
+' '''
+# -*- coding: utf-8 -*-
+import re
+import sys
+from fontTools.__main__ import main
+if __name__ == '__main__':
+    sys.argv[0] = re.sub(r'(-script\.pyw|\.exe)?$', '', sys.argv[0])
+    sys.exit(main())

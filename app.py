@@ -14,6 +14,7 @@ import zipfile
 from pdf2image import convert_from_path
 import io
 import math
+import re
 
 
 app = Flask(__name__)
@@ -105,6 +106,12 @@ def signature_interface():
 @app.route('/tool/view')
 def view_interface():
     return render_template('view.html')
+
+
+@app.route('/tool/protect')
+def protect_interface():
+    return render_template('protect.html')
+
 @app.route('/tool/pdf_to_jpeg')
 def pdf_to_jpeg_interface():
     return render_template('pdf_to_jpeg.html')
@@ -1110,6 +1117,61 @@ def pdf_to_jpeg_action():
         return jsonify({'error': 'Le module pdf2image est manquant sur le serveur.'}), 500
     except Exception as e:
         return jsonify({'error': f"Erreur de conversion : {str(e)}"}), 500
+
+
+@app.route('/api/protect', methods=['POST'])
+def protect_action():
+    """Protège un PDF par mot de passe et renvoie le fichier sécurisé."""
+    data = request.json or {}
+    filename = data.get('file')
+    password = (data.get('password') or '')
+    confirm_password = (data.get('confirmPassword') or '')
+    output_name = (data.get('outputName') or '')
+
+    if not filename:
+        return jsonify({'error': 'Aucun fichier PDF fourni'}), 400
+    if not password:
+        return jsonify({'error': 'Mot de passe manquant'}), 400
+    if password != confirm_password:
+        return jsonify({'error': 'Les mots de passe ne correspondent pas'}), 400
+
+    if len(password) < 8:
+        return jsonify({'error': 'Le mot de passe doit contenir au moins 8 caractères'}), 400
+    if len(password) > 50:
+        return jsonify({'error': 'Le mot de passe ne doit pas contenir plus de 50 caractères'}), 400
+
+    pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    if not os.path.exists(pdf_path):
+        return jsonify({'error': 'Fichier introuvable'}), 404
+
+    base_name = secure_filename(output_name) or 'document_protege'
+    download_name = base_name if base_name.lower().endswith('.pdf') else f"{base_name}.pdf"
+
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    internal_filename = f"{os.path.splitext(download_name)[0]}_{timestamp}.pdf"
+    internal_path = os.path.join(app.config['UPLOAD_FOLDER'], internal_filename)
+
+    try:
+        reader = PdfReader(pdf_path)
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            writer.add_page(page)
+
+       
+        # Chiffrement 128 bits pour une protection standard et compatible
+        writer.encrypt(password)
+
+        with open(internal_path, "wb") as f:
+            writer.write(f)
+    except Exception as e:
+        return jsonify({'error': f'Protection impossible: {e}'}), 500
+
+    return jsonify({
+        'success': True,
+        'filename': internal_filename,
+        'downloadName': download_name
+    })
 
 @app.route('/download/<filename>')
 def download_file(filename):
