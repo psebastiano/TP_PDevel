@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Réorganiser les Pages PDF</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
+        .container { max-width: 900px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
+        h1 { text-align: center; color: #333; margin-bottom: 10px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 30px; font-size: 0.9em; }
+
+        /* Styles pour le chargement et la zone d'upload */
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            cursor: pointer;
+            transition: 0.3s;
+            margin-bottom: 20px;
+        }
+        .upload-area:hover { background: #eef0ff; border-color: #5a67d8; }
+        .file-info { margin-top: 20px; text-align: center; font-weight: bold; color: #333; display:none; }
+
+        /* Zone de Réorganisation des Pages */
+        #pageOrganizer {
+            display: none; /* Initiallement caché */
+            padding: 20px 0;
+            margin-top: 20px;
+            min-height: 200px;
+            border-top: 1px solid #eee;
+        }
+        .page-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            justify-content: center;
+        }
+        .page-card {
+            position: relative;
+            width: 120px;
+            height: 160px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+            cursor: grab;
+            transition: transform 0.2s, box-shadow 0.2s;
+            background: #fff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 0.9em;
+        }
+        .page-card:hover {
+            box-shadow: 0 6px 15px rgba(0,0,0,0.1);
+        }
+
+        /* État de Glisser-Déposer */
+        .page-card.dragging {
+            opacity: 0.5;
+            border: 2px dashed #5a67d8;
+            transform: scale(1.05);
+            cursor: grabbing;
+        }
+        .page-card.over {
+            border: 2px solid #5a67d8; /* Indicateur de position */
+        }
+        
+        /* Numéro de Page (Marker) */
+        .page-number {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            background: #667eea;
+            color: white;
+            padding: 2px 7px;
+            border-radius: 50%;
+            font-size: 0.8em;
+            font-weight: bold;
+            z-index: 10;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+
+        /* Boutons */
+        button.action-btn {
+            width: 100%; padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; border: none; border-radius: 10px;
+            font-size: 1.1em; cursor: pointer; font-weight: 600; margin-top: 20px;
+        }
+        button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
+        
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .download-zone { text-align: center; margin-top: 20px; display: none; }
+        .download-link { background: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; display: inline-block; font-weight: bold; }
+
+    </style>
+</head>
+<body>
+    <a href="/" class="back-link">← Retour Accueil</a>
+
+    <div class="container">
+        <h1>📑 Réorganiser les Pages PDF</h1>
+        <p class="subtitle">Glissez-déposez pour modifier l'ordre des pages.</p>
+
+        <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
+            <span style="font-size: 3em;">📂</span>
+            <h3 id="uploadText">Cliquez ou glissez votre PDF ici</h3>
+            <input type="file" id="fileInput" accept=".pdf" style="display: none;">
+        </div>
+
+        <div id="fileInfo" class="file-info"></div>
+
+        <div id="pageOrganizer">
+            <h2>Ordre des Pages</h2>
+            <div id="pageGrid" class="page-grid">
+                </div>
+            
+            <button id="processBtn" class="action-btn" disabled onclick="sendReorderedPDF()">Générer le PDF Réorganisé</button>
+        </div>
+
+        <div id="loader" class="loader"></div>
+        <div id="result" class="download-zone"></div>
+    </div>
+
+    <script>
+        let currentFile = null;
+        let pageElements = [];
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const uploadText = document.getElementById('uploadText');
+        const fileInfo = document.getElementById('fileInfo');
+        const pageOrganizer = document.getElementById('pageOrganizer');
+        const pageGrid = document.getElementById('pageGrid');
+        const processBtn = document.getElementById('processBtn');
+
+        // --- Fonctions de Drag & Drop pour les Pages ---
+
+        function handleDragStart(e) {
+            this.classList.add('dragging');
+            e.dataTransfer.setData('text/plain', this.dataset.pageId);
+        }
+
+        function handleDragOver(e) {
+            e.preventDefault(); // Nécessaire pour permettre le drop
+            const draggingCard = document.querySelector('.dragging');
+            const targetCard = this;
+
+            if (draggingCard && draggingCard !== targetCard) {
+                targetCard.classList.add('over');
+            }
+        }
+
+        function handleDragLeave() {
+            this.classList.remove('over');
+        }
+
+        function handleDrop(e) {
+            e.preventDefault();
+            this.classList.remove('over');
+
+            const draggingCard = document.querySelector('.dragging');
+            if (draggingCard && draggingCard !== this) {
+                const referenceCard = this;
+                const grid = referenceCard.parentNode;
+                
+                // Déplacer l'élément
+                const rect = referenceCard.getBoundingClientRect();
+                const isAfter = e.clientX > rect.left + rect.width / 2;
+
+                if (isAfter) {
+                    grid.insertBefore(draggingCard, referenceCard.nextSibling);
+                } else {
+                    grid.insertBefore(draggingCard, referenceCard);
+                }
+            }
+        }
+
+        function handleDragEnd() {
+            this.classList.remove('dragging');
+            // Mettre à jour l'état de l'interface
+            updatePageOrderState();
+        }
+        
+        function updatePageOrderState() {
+            // Optionnel : Mettre à jour l'index dans le petit marqueur si besoin,
+            // ou juste s'assurer que l'ordre DOM est le seul maître.
+        }
+
+        // --- Gestion du Fichier PDF ---
+
+        // Drag & Drop pour la zone d'upload
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
+        });
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.style.background = '#e0e7ff', false);
+        });
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, () => dropZone.style.background = '#f8f9ff', false);
+        });
+
+        dropZone.addEventListener('drop', (e) => handleFile(e.dataTransfer.files[0]));
+        fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+        function handleFile(file) {
+            if (!file || file.type !== 'application/pdf') {
+                alert("Fichier PDF requis.");
+                return;
+            }
+            currentFile = file;
+            fileInfo.style.display = 'block';
+            fileInfo.innerText = `📄 ${file.name}`;
+            
+            uploadText.innerText = "PDF Chargé !";
+            dropZone.style.background = '#eef0ff';
+            
+            // Simuler la récupération des pages et afficher l'organisateur
+            // *NOTE: En réalité, cette fonction ferait appel à une API (ou pdf.js)
+            // pour obtenir le nombre de pages et générer les miniatures.
+            simulatePageLoading(file.name); 
+        }
+        
+        function simulatePageLoading(filename) {
+            // Remplacer par la vraie logique de récupération de pages/miniatures
+            const numPages = Math.floor(Math.random() * 10) + 3; // Simuler entre 3 et 12 pages
+
+            pageGrid.innerHTML = ''; // Nettoyer
+            pageElements = [];
+            
+            for (let i = 1; i <= numPages; i++) {
+                const card = document.createElement('div');
+                card.className = 'page-card';
+                card.draggable = true;
+                card.dataset.pageId = `original-page-${i}`;
+                
+                card.innerHTML = `
+                    <span class="page-number">${i}</span>
+                    <p>Page ${i}</p>
+                    `;
+
+                card.addEventListener('dragstart', handleDragStart);
+                card.addEventListener('dragover', handleDragOver);
+                card.addEventListener('dragleave', handleDragLeave);
+                card.addEventListener('drop', handleDrop);
+                card.addEventListener('dragend', handleDragEnd);
+
+                pageGrid.appendChild(card);
+                pageElements.push(card);
+            }
+
+            pageOrganizer.style.display = 'block';
+            processBtn.disabled = false;
+        }
+
+
+        // --- Envoi de l'Ordre Réorganisé au Serveur ---
+
+        async function sendReorderedPDF() {
+            if (!currentFile) return;
+
+            const loader = document.getElementById('loader');
+            const resultDiv = document.getElementById('result');
+            
+            // 1. Récupérer le nouvel ordre des pages
+            const reorderedPages = Array.from(pageGrid.children).map(card => card.dataset.pageId);
+            
+            // Le tableau reorderedPages contient l'ordre souhaité
+            // Exemple: ["original-page-3", "original-page-1", "original-page-2", ...]
+            console.log("Nouvel ordre à envoyer:", reorderedPages);
+
+            processBtn.disabled = true;
+            processBtn.innerText = "Génération du PDF...";
+            loader.style.display = 'block';
+            resultDiv.style.display = 'none';
+
+            // 2. Préparer les données pour l'API (à implémenter côté serveur)
+            const formData = new FormData();
+            formData.append('file', currentFile);
+            formData.append('pageOrder', JSON.stringify(reorderedPages)); // Envoyer le nouvel ordre
+            
+            try {
+                    // 3. Appel API
+                    const res = await fetch('/api/reorder_pdf', { 
+                        method: 'POST',
+                        body: formData
+                    });
+
+                    // 4. Vérifier la réponse HTTP
+                    if (!res.ok) {
+                        // Gérer les erreurs non-JSON (comme le 500 que vous avez rencontré)
+                        throw new Error(`Erreur serveur HTTP: ${res.status} - Le traitement a échoué.`);
+                    }
+                    
+                    // 5. Récupérer le VRAI JSON du backend
+                    // data contient maintenant : { 'success': True, 'filename': 'reordered_document.pdf', 'downloadName': 'reordered_document.pdf' }
+                    const data = await res.json();
+                
+                 
+                if (data.success) {
+                    resultDiv.innerHTML = `
+                        <p style="color:green; margin-bottom:10px;">✅ PDF réorganisé avec succès !</p>
+                    <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName || data.filename)}" class="download-link">
+                            ⬇️ Télécharger ${data.downloadName || data.filename}
+                        </a>
+                    `;
+                    resultDiv.style.display = 'block';
+                    processBtn.style.display = 'none';
+                } else {
+                    // Gérer l'erreur API réelle
+                    alert('Erreur lors de la réorganisation.');
+                    processBtn.disabled = false;
+                    processBtn.innerText = "Générer le PDF Réorganisé";
+                }
+                
+            } catch (e) {
+                console.error(e);
+                alert('Erreur serveur');
+                processBtn.disabled = false;
+                processBtn.innerText = "Générer le PDF Réorganisé";
+            } finally {
+                loader.style.display = 'none';
+            }
+        }
+    </script>
+</body>
+</html>
