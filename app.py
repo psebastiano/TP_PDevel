@@ -493,35 +493,27 @@ def merge_action():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
 @app.route('/api/sign', methods=['POST'])
 def sign_pdf_action():
-    """Sign a PDF with a PNG image on the last page.
-
-    Args:
-        pdf (file): PDF file to sign.
-        signature (file): PNG image of the signature.
-        position (str, optional): Position of the signature ('bottom-right' by default).
-
-    Returns:
-        JSON:
-            - success (bool): True if signing succeeded.
-            - filename (str): Server filename of signed PDF.
-            - downloadName (str): Suggested download name.
-
-    Raises:
-        400: If required files are missing or invalid.
-        500: On any error during PDF signing.
-    """
-    # Vérification des fichiers
     if 'pdf' not in request.files or 'signature' not in request.files:
         return jsonify({'error': 'PDF et image de signature requis'}), 400
 
     pdf_file = request.files['pdf']
     sig_file = request.files['signature']
     position = request.form.get('position', 'bottom-right')
+    target_page_str = request.form.get('targetPage', 'last')
 
-    # Validation basique des extensions
+    # Coordonnées/échelle optionnelles
+    pos_x_raw = request.form.get('posX')
+    pos_y_raw = request.form.get('posY')
+    sig_scale_raw = request.form.get('sigScale', '25')
+    try:
+        pos_x_pct = float(pos_x_raw) if pos_x_raw is not None else None
+        pos_y_pct = float(pos_y_raw) if pos_y_raw is not None else None
+        sig_scale_pct = float(sig_scale_raw)
+    except ValueError:
+        return jsonify({'error': 'Coordonnées ou taille invalides'}), 400
+
     if not pdf_file.filename.lower().endswith('.pdf'):
         return jsonify({'error': 'Le fichier PDF est invalide'}), 400
     if not sig_file.filename.lower().endswith('.png'):
@@ -540,60 +532,73 @@ def sign_pdf_action():
 
         reader = PdfReader(pdf_path)
         writer = PdfWriter()
-
-        # Préparer l'image de signature
         img = ImageReader(sig_path)
-
         total_pages = len(reader.pages)
 
-        # Parcourir les pages et n'appliquer la signature que sur la dernière
+        # Déterminer quelles pages signer
+        if target_page_str == 'all':
+            pages_to_sign = set(range(total_pages))
+        elif target_page_str == 'last':
+            pages_to_sign = {total_pages - 1}
+        else:
+            # Page spécifique (1-indexed vers 0-indexed)
+            try:
+                page_num = int(target_page_str) - 1
+                if 0 <= page_num < total_pages:
+                    pages_to_sign = {page_num}
+                else:
+                    pages_to_sign = {total_pages - 1}
+            except ValueError:
+                pages_to_sign = {total_pages - 1}
+
         for i, page in enumerate(reader.pages):
-            if i == total_pages - 1:
+            if i in pages_to_sign:
                 w = float(page.mediabox.width)
                 h = float(page.mediabox.height)
 
-                # Overlay temporaire pour la dernière page uniquement
-                overlay_path = os.path.join(app.config['UPLOAD_FOLDER'], f"overlay_{ts}_{os.urandom(4).hex()}.pdf")
+                overlay_path = os.path.join(app.config['UPLOAD_FOLDER'], f"overlay_{ts}_{i}_{os.urandom(4).hex()}.pdf")
                 c = canvas.Canvas(overlay_path, pagesize=(w, h))
 
-                # Taille de la signature: ~25% de la largeur de page
-                target_width = w * 0.25
+                target_width = max(20.0, min(w, (sig_scale_pct / 100.0) * w))
                 iw, ih = img.getSize()
                 aspect = ih / iw
                 target_height = target_width * aspect
 
-                margin = 36.0  # 0.5 inch
-                if position == 'bottom-left':
-                    x = margin
-                    y = margin
-                elif position == 'bottom-right':
-                    x = w - margin - target_width
-                    y = margin
-                elif position == 'bottom-center':
-                    x = (w - target_width) / 2.0
-                    y = margin
+                margin = 36.0
+
+                if pos_x_pct is not None and pos_y_pct is not None:
+                    x = (pos_x_pct / 100.0) * w
+                    y = (pos_y_pct / 100.0) * h
+                    x = max(0.0, min(w - target_width, x))
+                    y = max(0.0, min(h - target_height, y))
                 else:
-                    x = w - margin - target_width
-                    y = margin
+                    if position == 'bottom-left':
+                        x = margin
+                        y = margin
+                    elif position == 'bottom-right':
+                        x = w - margin - target_width
+                        y = margin
+                    elif position == 'bottom-center':
+                        x = (w - target_width) / 2.0
+                        y = margin
+                    else:
+                        x = w - margin - target_width
+                        y = margin
 
                 c.drawImage(img, x, y, width=target_width, height=target_height, mask='auto')
                 c.save()
 
-                # Fusion overlay avec la dernière page
                 overlay_reader = PdfReader(overlay_path)
                 overlay_page = overlay_reader.pages[0]
                 page.merge_page(overlay_page)
 
-                # Nettoyage du fichier overlay temporaire
                 try:
                     os.remove(overlay_path)
                 except Exception:
                     pass
 
-            # Ajouter la page (signée si c'est la dernière)
             writer.add_page(page)
 
-        # Enregistrer le PDF signé
         out_download = f"signe_{os.path.splitext(pdf_name)[0]}.pdf"
         out_internal = f"signed_{ts}_{secure_filename(out_download)}"
         out_path = os.path.join(app.config['UPLOAD_FOLDER'], out_internal)
@@ -608,7 +613,10 @@ def sign_pdf_action():
         })
 
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
 
 
 @app.route('/api/organize', methods=['POST'])
