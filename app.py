@@ -13,6 +13,7 @@ from reportlab.lib import colors
 import zipfile
 from pdf2image import convert_from_path
 import io
+import json
 import math
 import fitz
 from PIL import Image
@@ -269,7 +270,7 @@ def capture_multiple_regions():
                         y,
                         width,
                         height,
-                        scale=2,
+                        display_scale=2,
                         format=format
                     )
                     

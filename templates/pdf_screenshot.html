@@ -37,6 +37,27 @@
     </script>
 
     <style>
+        .pdf-page.active {
+            box-shadow: 0 0 0 4px rgba(102,126,234,0.15);
+            border-radius: 6px;
+            transition: box-shadow 0.15s ease-in-out;
+        }
+
+        .pdf-page:hover {
+            box-shadow: 0 6px 20px rgba(0,0,0,0.08);
+        }
+
+        /* Visual active frame placed above page but non-interactive */
+        .active-frame {
+            position: absolute;
+            border: 5px solid rgba(255,71,87,0.95); /* thick and mostly opaque red */
+            border-radius: 6px;
+            pointer-events: none;
+            z-index: 60;
+            transition: all 0.12s ease;
+            box-shadow: 0 8px 30px rgba(255,71,87,0.18);
+        }
+
         body { 
             font-family: 'Segoe UI', sans-serif; 
             background: #f4f6f9; 
@@ -253,6 +274,7 @@
                 </div>
                 <button id="selectBtn" class="btn btn-disabled" disabled>🎯 Sélectionner une zone</button>
                 <button id="captureBtn" class="btn btn-disabled" disabled>📷 Capturer</button>
+                <button id="captureAllBtn" class="btn btn-disabled" disabled>📦 Capturer tout (ZIP)</button>
                 <button id="resetBtn" class="btn btn-disabled" disabled>🔄 Réinitialiser</button>
             </div>
         </div>
@@ -276,8 +298,14 @@
                 <div class="selection-info">
                     Sélection: <span id="selectionSize">0x0</span> px
                 </div>
-                <button id="confirmSelection" class="btn btn-primary">Confirmer la sélection</button>
+                <button id="confirmSelection" class="btn btn-primary">Ajouter la sélection</button>
                 <button id="cancelSelection" class="btn">Annuler</button>
+            </div>
+
+            <div class="regions-list" id="regionsListContainer" style="display:none; position: absolute; right:10px; top:10px; background: rgba(255,255,255,0.95); padding:10px; border-radius:8px; z-index:30; max-width:300px;">
+                <div style="font-weight:bold; margin-bottom:8px">Sélections</div>
+                <div id="regionsList"></div>
+                <div style="margin-top:8px; font-size:0.9em; color:#666">Cliquez sur une page avant d'ajouter une sélection.</div>
             </div>
         </div>
     </div>
@@ -340,6 +368,7 @@
         const dropZone = document.getElementById('dropZone');
         const selectBtn = document.getElementById('selectBtn');
         const captureBtn = document.getElementById('captureBtn');
+        const captureAllBtn = document.getElementById('captureAllBtn');
         const resetBtn = document.getElementById('resetBtn');
         const selectionOverlay = document.getElementById('selectionOverlay');
         const selectionRect = document.getElementById('selectionRect');
@@ -349,6 +378,9 @@
         const cancelSelection = document.getElementById('cancelSelection');
         const pdfContainer = document.getElementById('pdfContainer');
         const pdfViewerWrapper = document.getElementById('pdfViewerWrapper');
+
+        // Active frame element (visible highlight over active page, non-interactive)
+        let activeFrame = null;
 
         // Variables d'état
         let isSelecting = false;
@@ -363,6 +395,10 @@
         let currentPageWidth = 0;
         let currentPageHeight = 0;
         let currentScale = 1.0;
+        // If true, PDF will be automatically scaled to fit the viewer width.
+        // Set to false to prevent automatic rescaling (keep natural/explicit scale).
+        let autoFitToWidth = false;
+        let regions = [];
 
         /**
          * Affiche le PDF sur le Canvas en utilisant PDF.js.
@@ -406,9 +442,9 @@
                             const viewport = page.getViewport({ scale: 1.0 });
 
                             // compute scale based on first page width so pages align
-                            if (pageNum === 1) {
+                            if (pageNum === 1 && autoFitToWidth) {
                                 currentScale = wrapperWidth / viewport.width;
-                                console.log('Échelle calculée:', currentScale);
+                                console.log('Échelle calculée (fit-to-width):', currentScale);
                             }
 
                             const scaledViewport = page.getViewport({ scale: currentScale });
@@ -441,12 +477,32 @@
 
                             // clicking a canvas sets currentPage and its top offset inside the container
                             canvas.addEventListener('click', () => {
+                                // Remove active class from other pages
+                                pdfContainer.querySelectorAll('.pdf-page.active').forEach(p=>p.classList.remove('active'));
+
+                                // Activate this page
+                                pageDiv.classList.add('active');
+
                                 currentPage = pageNum;
                                 // pageDiv.offsetTop/Left are offsets relative to pdfContainer
                                 currentPageTop = pageDiv.offsetTop || 0;
                                 currentPageLeft = pageDiv.offsetLeft || 0;
                                 currentPageWidth = pageDiv.clientWidth || scaledViewport.width;
                                 currentPageHeight = pageDiv.clientHeight || scaledViewport.height;
+
+                                // Create or update activeFrame positioned above this page
+                                if (!activeFrame) {
+                                    activeFrame = document.createElement('div');
+                                    activeFrame.className = 'active-frame';
+                                    pdfContainer.appendChild(activeFrame);
+                                }
+                                const left = currentPageLeft + 'px';
+                                const top = currentPageTop + 'px';
+                                activeFrame.style.left = left;
+                                activeFrame.style.top = top;
+                                activeFrame.style.width = (currentPageWidth) + 'px';
+                                activeFrame.style.height = (currentPageHeight) + 'px';
+
                                 console.log('currentPage set to', currentPage, 'left=', currentPageLeft, 'top=', currentPageTop, 'size=', currentPageWidth, 'x', currentPageHeight);
                             });
 
@@ -459,6 +515,29 @@
                         pdfContainer.style.height = totalHeight + 'px';
                         selectionOverlay.style.width = pageWidth + 'px';
                         selectionOverlay.style.height = totalHeight + 'px';
+
+                        // Mark first page active by default
+                        const firstPage = pdfContainer.querySelector('.pdf-page');
+                        if (firstPage) {
+                            pdfContainer.querySelectorAll('.pdf-page.active').forEach(p=>p.classList.remove('active'));
+                            firstPage.classList.add('active');
+                            currentPage = parseInt(firstPage.dataset.page, 10) || 1;
+                            currentPageTop = firstPage.offsetTop || 0;
+                            currentPageLeft = firstPage.offsetLeft || 0;
+                            currentPageWidth = firstPage.clientWidth || 0;
+                            currentPageHeight = firstPage.clientHeight || 0;
+
+                            // Create activeFrame for the first page
+                            if (!activeFrame) {
+                                activeFrame = document.createElement('div');
+                                activeFrame.className = 'active-frame';
+                                pdfContainer.appendChild(activeFrame);
+                            }
+                            activeFrame.style.left = currentPageLeft + 'px';
+                            activeFrame.style.top = currentPageTop + 'px';
+                            activeFrame.style.width = currentPageWidth + 'px';
+                            activeFrame.style.height = currentPageHeight + 'px';
+                        }
 
                         // Update UI state
                         pdfLoaded = true;
@@ -794,11 +873,99 @@
         });
 
         captureBtn.addEventListener('click', captureSelection);
-        
+        captureAllBtn.addEventListener('click', async () => {
+            if (!pdfLoaded || !currentPDFFile) { alert('Aucun PDF chargé'); return; }
+            if (!regions.length) { alert('Aucune région définie'); return; }
+
+            try {
+                captureAllBtn.textContent = '⏳ Traitement...';
+                captureAllBtn.disabled = true;
+                captureAllBtn.classList.add('btn-disabled');
+
+                const formData = new FormData();
+                formData.append('file', currentPDFFile);
+                formData.append('regions', JSON.stringify(regions));
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+                const res = await fetch('/api/capture_multiple', { method: 'POST', body: formData, signal: controller.signal });
+                clearTimeout(timeoutId);
+
+                if (!res.ok) {
+                    const err = await res.json().catch(()=>null);
+                    alert('Erreur: ' + (err?.error || res.statusText));
+                    return;
+                }
+
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'captures.zip';
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+
+                // Clear regions after successful download
+                regions = [];
+                updateRegionsList();
+                alert('ZIP téléchargé');
+
+            } catch (e) {
+                if (e.name === 'AbortError') console.error('Requête annulée'); else console.error(e);
+                alert('Erreur lors de la capture multiple');
+            } finally {
+                captureAllBtn.textContent = '📦 Capturer tout (ZIP)';
+                captureAllBtn.disabled = false;
+                captureAllBtn.classList.remove('btn-disabled');
+            }
+        });
+
         resetBtn.addEventListener('click', resetState);
         
         confirmSelection.addEventListener('click', stopSelection);
         
+        // Add region when user confirms selection
+        confirmSelection.addEventListener('click', () => {
+            if (!pdfLoaded) { alert('Chargez d\u00e9sormais un PDF'); return; }
+            if (currentSelection.width === 0 || currentSelection.height === 0) { alert('Sélection invalide'); return; }
+            if (!currentPage) { alert('Cliquez sur la page cible d\u00e9sormais'); return; }
+
+            // Compute page-relative coords (same logic as capture)
+            let x_rel = currentSelection.x - currentPageLeft;
+            let y_rel = currentSelection.y - currentPageTop;
+            let width_rel = currentSelection.width;
+            let height_rel = currentSelection.height;
+
+            if (x_rel < 0) { width_rel += x_rel; x_rel = 0; }
+            if (y_rel < 0) { height_rel += y_rel; y_rel = 0; }
+
+            width_rel = Math.max(0, Math.min(width_rel, currentPageWidth - x_rel));
+            height_rel = Math.max(0, Math.min(height_rel, currentPageHeight - y_rel));
+
+            if (width_rel <= 0 || height_rel <= 0) { alert('Sélection hors page'); return; }
+
+            const region = {
+                page: currentPage - 1,
+                x: Math.round(x_rel),
+                y: Math.round(y_rel),
+                width: Math.round(width_rel),
+                height: Math.round(height_rel),
+                format: 'PNG'
+            };
+
+            regions.push(region);
+            updateRegionsList();
+
+            // Clear selection UI
+            selectionRect.style.display = 'none';
+            currentSelection = { x: 0, y: 0, width: 0, height: 0 };
+            stopSelection();
+            console.log('Région ajoutée:', region);
+        });
+
         cancelSelection.addEventListener('click', () => {
             selectionRect.style.display = 'none';
             currentSelection = { x: 0, y: 0, width: 0, height: 0 };
@@ -816,6 +983,36 @@
                 showPDF(file);
             }
         });
+
+        // Update the regions list UI
+        function updateRegionsList() {
+            const container = document.getElementById('regionsListContainer');
+            const list = document.getElementById('regionsList');
+            if (!regions.length) {
+                container.style.display = 'none';
+                captureAllBtn.disabled = true;
+                captureAllBtn.classList.add('btn-disabled');
+                return;
+            }
+            container.style.display = 'block';
+            list.innerHTML = '';
+            regions.forEach((r, i) => {
+                const div = document.createElement('div');
+                div.style.marginBottom = '6px';
+                div.style.fontSize = '0.9em';
+                div.textContent = `#${i+1} Page:${r.page+1} — ${r.width}x${r.height} @ ${r.x},${r.y}`;
+                const rm = document.createElement('button');
+                rm.textContent = 'Suppr';
+                rm.style.marginLeft = '8px';
+                rm.className = 'btn';
+                rm.style.padding = '4px 8px';
+                rm.addEventListener('click', () => { regions.splice(i,1); updateRegionsList(); });
+                div.appendChild(rm);
+                list.appendChild(div);
+            });
+            captureAllBtn.disabled = false;
+            captureAllBtn.classList.remove('btn-disabled');
+        }
 
         // Gestionnaires pour drag & drop
         ['dragenter', 'dragover'].forEach(eventName => {
@@ -845,10 +1042,28 @@
         });
 
         // Gestionnaire pour le redimensionnement de la fenêtre
+        // Only re-render on resize if autoFitToWidth is enabled.
         window.addEventListener('resize', () => {
-            if (pdfLoaded && currentPDFFile) {
-                console.log("Redimensionnement - re-render");
+            if (autoFitToWidth && pdfLoaded && currentPDFFile) {
+                console.log("Redimensionnement - re-render (auto-fit enabled)");
                 setTimeout(() => renderPage(currentPDFFile), 100);
+            }
+        });
+
+        // Keep activeFrame positioned on resize without re-rendering if present
+        window.addEventListener('resize', () => {
+            if (activeFrame && currentPage) {
+                const pageDiv = pdfContainer.querySelector(`.pdf-page[data-page="${currentPage}"]`);
+                if (pageDiv) {
+                    currentPageTop = pageDiv.offsetTop || 0;
+                    currentPageLeft = pageDiv.offsetLeft || 0;
+                    currentPageWidth = pageDiv.clientWidth || 0;
+                    currentPageHeight = pageDiv.clientHeight || 0;
+                    activeFrame.style.left = currentPageLeft + 'px';
+                    activeFrame.style.top = currentPageTop + 'px';
+                    activeFrame.style.width = currentPageWidth + 'px';
+                    activeFrame.style.height = currentPageHeight + 'px';
+                }
             }
         });
 
