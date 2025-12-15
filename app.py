@@ -14,7 +14,11 @@ import zipfile
 from pdf2image import convert_from_path
 import io
 import math
-
+from flask import request, jsonify, send_file, render_template
+from PyPDF2 import PdfReader, PdfWriter
+from reportlab.pdfgen import canvas
+import tempfile
+import os
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
@@ -108,6 +112,10 @@ def view_interface():
 @app.route('/tool/pdf_to_jpeg')
 def pdf_to_jpeg_interface():
     return render_template('pdf_to_jpeg.html')
+
+@app.route('/tool/page_number')
+def page_number_interface():
+    return render_template('page_number.html')
 
 
 # --- ROUTES API ---
@@ -1130,6 +1138,69 @@ def download_file(filename):
     if os.path.exists(filepath):
         return send_file(filepath, as_attachment=True, download_name=download_name)
     return jsonify({'error': 'Fichier introuvable'}), 404
+
+@app.route('/api/page_numbers', methods=['POST'])
+def page_number_action():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Aucun fichier PDF'}), 400
+
+        file = request.files['file']
+        position = request.form.get('position', 'bottom-center')
+
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'Format invalide'}), 400
+
+        # 🔹 حفظ PDF مؤقت
+        temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        file.save(temp_input.name)
+        temp_input.close()
+
+        reader = PdfReader(temp_input.name)
+        writer = PdfWriter()
+
+        for i, page in enumerate(reader.pages, start=1):
+            w = float(page.mediabox.width)
+            h = float(page.mediabox.height)
+
+            overlay_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+
+            c = canvas.Canvas(overlay_path, pagesize=(w, h))
+            c.setFont("Helvetica", 10)   # ✅ مهم جدًا
+            text = str(i)
+
+            if position == 'bottom-left':
+                x, y = 40, 30
+                c.drawString(x, y, text)
+            elif position == 'bottom-right':
+                x, y = w - 40
+                c.drawRightString(x, 30, text)
+            else:  # bottom-center
+                c.drawCentredString(w / 2, 30, text)
+
+            c.save()  # ✅ إغلاق صحيح
+
+            overlay_reader = PdfReader(overlay_path)
+            page.merge_page(overlay_reader.pages[0])
+            writer.add_page(page)
+
+            os.remove(overlay_path)
+
+        output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name="numero.pdf"
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()   # 🔥 سيظهر الخطأ الحقيقي في التيرمينال
+        return jsonify({'error': 'Erreur serveur'}), 500
+
 
 
 if __name__ == '__main__':

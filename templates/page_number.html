@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<title>Numérotation PDF</title>
+
+<style>
+*{
+    box-sizing:border-box;
+}
+
+body{
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(135deg,#667eea,#764ba2);
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    height:100vh;
+    margin:0;
+}
+
+.card{
+    background:white;
+    padding:35px 30px;
+    border-radius:18px;
+    width:420px;
+    box-shadow:0 25px 60px rgba(0,0,0,.25);
+    animation: fadeIn .4s ease;
+    position: relative;
+}
+
+@keyframes fadeIn{
+    from{opacity:0; transform:translateY(15px)}
+    to{opacity:1; transform:translateY(0)}
+}
+
+/* 🔙 Bouton retour */
+.back-btn{
+    display:inline-block;
+    margin-bottom:15px;
+    text-decoration:none;
+    font-weight:600;
+    color:#667eea;
+    font-size:0.95em;
+    transition:.2s;
+}
+
+.back-btn:hover{
+    color:#764ba2;
+    transform:translateX(-3px);
+}
+
+h2{
+    text-align:center;
+    margin-bottom:25px;
+    color:#333;
+}
+
+input, select, button{
+    width:100%;
+    margin-top:14px;
+    padding:12px;
+    font-size:15px;
+    border-radius:10px;
+}
+
+input, select{
+    border:1px solid #ccc;
+    outline:none;
+}
+
+input:focus, select:focus{
+    border-color:#667eea;
+}
+
+button{
+    background:linear-gradient(135deg,#667eea,#764ba2);
+    color:white;
+    border:none;
+    border-radius:30px;
+    cursor:pointer;
+    font-weight:600;
+    margin-top:25px;
+    transition:.3s;
+}
+
+button:hover{
+    transform:translateY(-2px);
+    box-shadow:0 10px 25px rgba(102,126,234,.5);
+}
+</style>
+</head>
+
+<body>
+
+<div class="card">
+
+    <!-- 🔙 Retour Home -->
+    <a href="/" class="back-btn">← Retour à l’accueil</a>
+
+    <h2>🔢 Numérotation PDF</h2>
+
+    <form id="numberForm" enctype="multipart/form-data">
+
+        <!-- نفس الحقول – لم نغيّر شيئًا -->
+        <input type="file" name="file" accept=".pdf" required>
+
+        <select name="position">
+            <option value="bottom-center">Bas - Centre</option>
+            <option value="bottom-left">Bas - Gauche</option>
+            <option value="bottom-right">Bas - Droite</option>
+        </select>
+
+        <button type="submit">Ajouter numérotation</button>
+    </form>
+</div>
+
+<script>
+document.getElementById("numberForm").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const formData = new FormData(e.target);
+
+    const res = await fetch("/api/page_numbers", {
+        method: "POST",
+        body: formData
+    });
+
+    if (res.ok) {
+        const blob = await res.blob();
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "numerote.pdf";
+        a.click();
+    } else {
+        alert("Erreur lors du traitement");
+    }
+});
+</script>
+
+</body>
+</html>
