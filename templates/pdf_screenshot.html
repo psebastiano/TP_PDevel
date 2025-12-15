@@ -358,6 +358,10 @@
         let currentPDFFile = null; 
         let pdfDoc = null;
         let currentPage = 1;
+        let currentPageTop = 0;
+        let currentPageLeft = 0;
+        let currentPageWidth = 0;
+        let currentPageHeight = 0;
         let currentScale = 1.0;
 
         /**
@@ -368,57 +372,95 @@
                 console.error("Aucun fichier PDF fourni");
                 return;
             }
-            
+
             if (!pdfjsLib) {
                 alert("PDF.js n'est pas disponible. Rechargez la page.");
                 return;
             }
 
             console.log("Début du rendu du PDF:", pdfFile.name);
-            
+
             try {
-                // Lecture du fichier
                 const fileReader = new FileReader();
-                
+
                 fileReader.onload = async function() {
                     try {
                         const pdfData = new Uint8Array(this.result);
                         console.log("Fichier lu, taille:", pdfData.length);
-                        
+
                         const loadingTask = pdfjsLib.getDocument({ data: pdfData });
                         pdfDoc = await loadingTask.promise;
                         console.log("PDF document chargé, pages:", pdfDoc.numPages);
-                        
-                        const page = await pdfDoc.getPage(currentPage);
-                        
-                        // Calculer l'échelle
-                        const viewport = page.getViewport({ scale: 1.0 });
-                        console.log("Dimensions originales:", viewport.width, "x", viewport.height);
-                        
-                        const wrapperWidth = pdfViewerWrapper.clientWidth - 40; // Marge
-                        currentScale = wrapperWidth / viewport.width;
-                        console.log("Échelle calculée:", currentScale);
-                        
-                        const scaledViewport = page.getViewport({ scale: currentScale });
-                        console.log("Dimensions ajustées:", scaledViewport.width, "x", scaledViewport.height);
 
-                        // Définir la taille du Canvas
-                        pdfCanvas.width = scaledViewport.width;
-                        pdfCanvas.height = scaledViewport.height;
-                        
-                        pdfContainer.style.width = scaledViewport.width + 'px';
-                        pdfContainer.style.height = scaledViewport.height + 'px';
-                        
-                        // Rendre la page
-                        const renderContext = {
-                            canvasContext: pdfCanvas.getContext('2d'),
-                            viewport: scaledViewport
-                        };
-                        
-                        await page.render(renderContext).promise;
-                        console.log("PDF rendu avec succès");
-                        
-                        // Mise à jour de l'état
+                        // Clear previous pages (but keep overlays)
+                        Array.from(pdfContainer.children).forEach(child => {
+                            if (child.tagName === 'CANVAS' || child.classList.contains('pdf-page')) child.remove();
+                        });
+
+                        const wrapperWidth = pdfViewerWrapper.clientWidth - 40; // margin
+                        let totalHeight = 0;
+                        let pageWidth = 0;
+
+                        for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum++) {
+                            const page = await pdfDoc.getPage(pageNum);
+                            const viewport = page.getViewport({ scale: 1.0 });
+
+                            // compute scale based on first page width so pages align
+                            if (pageNum === 1) {
+                                currentScale = wrapperWidth / viewport.width;
+                                console.log('Échelle calculée:', currentScale);
+                            }
+
+                            const scaledViewport = page.getViewport({ scale: currentScale });
+
+                            // create page wrapper
+                            const pageDiv = document.createElement('div');
+                            pageDiv.className = 'pdf-page';
+                            pageDiv.style.position = 'relative';
+                            pageDiv.style.width = scaledViewport.width + 'px';
+                            pageDiv.style.height = scaledViewport.height + 'px';
+                            pageDiv.style.margin = '10px auto';
+
+                            const canvas = document.createElement('canvas');
+                            canvas.width = scaledViewport.width;
+                            canvas.height = scaledViewport.height;
+                            canvas.dataset.page = pageNum;
+                            canvas.style.display = 'block';
+
+                            pageDiv.appendChild(canvas);
+                            // insert before overlays (overlays are later children)
+                            pdfContainer.insertBefore(pageDiv, selectionOverlay);
+
+                            const renderContext = {
+                                canvasContext: canvas.getContext('2d'),
+                                viewport: scaledViewport
+                            };
+
+                            await page.render(renderContext).promise;
+                            console.log('Page', pageNum, 'rendue');
+
+                            // clicking a canvas sets currentPage and its top offset inside the container
+                            canvas.addEventListener('click', () => {
+                                currentPage = pageNum;
+                                // pageDiv.offsetTop/Left are offsets relative to pdfContainer
+                                currentPageTop = pageDiv.offsetTop || 0;
+                                currentPageLeft = pageDiv.offsetLeft || 0;
+                                currentPageWidth = pageDiv.clientWidth || scaledViewport.width;
+                                currentPageHeight = pageDiv.clientHeight || scaledViewport.height;
+                                console.log('currentPage set to', currentPage, 'left=', currentPageLeft, 'top=', currentPageTop, 'size=', currentPageWidth, 'x', currentPageHeight);
+                            });
+
+                            totalHeight += scaledViewport.height + 20; // include margin
+                            pageWidth = scaledViewport.width;
+                        }
+
+                        // Update container/overlay sizes
+                        pdfContainer.style.width = pageWidth + 'px';
+                        pdfContainer.style.height = totalHeight + 'px';
+                        selectionOverlay.style.width = pageWidth + 'px';
+                        selectionOverlay.style.height = totalHeight + 'px';
+
+                        // Update UI state
                         pdfLoaded = true;
                         pdfViewerWrapper.style.display = 'block';
                         placeholder.style.display = 'none';
@@ -429,26 +471,22 @@
                         resetBtn.classList.remove('btn-disabled');
 
                         currentPDFFile = pdfFile;
-                        
-                        // Ajuster l'overlay
-                        selectionOverlay.style.width = scaledViewport.width + 'px';
-                        selectionOverlay.style.height = scaledViewport.height + 'px';
-                        
+
                     } catch (error) {
                         console.error("Erreur lors du rendu:", error);
                         alert("Erreur lors de l'affichage du PDF: " + error.message);
                         resetState();
                     }
                 };
-                
+
                 fileReader.onerror = function(error) {
                     console.error("Erreur de lecture du fichier:", error);
                     alert("Erreur lors de la lecture du fichier PDF.");
                     resetState();
                 };
-                
+
                 fileReader.readAsArrayBuffer(pdfFile);
-                
+
             } catch (error) {
                 console.error("Erreur générale:", error);
                 alert("Erreur: " + error.message);
@@ -584,13 +622,41 @@
                     return;
                 }
                 
+                // Ensure a page has been selected (clicked)
+                if (!currentPage || typeof currentPageTop === 'undefined') {
+                    alert('Veuillez d\u00e9finir la page cible en cliquant sur la page avant de capturer.');
+                    return;
+                }
+
+                // Compute selection coordinates relative to the selected page
+                let x_rel = currentSelection.x - currentPageLeft;
+                let y_rel = currentSelection.y - currentPageTop;
+                let width_rel = currentSelection.width;
+                let height_rel = currentSelection.height;
+
+                // If selection starts outside page, adjust
+                if (x_rel < 0) { width_rel += x_rel; x_rel = 0; }
+                if (y_rel < 0) { height_rel += y_rel; y_rel = 0; }
+
+                // Clamp to page bounds
+                width_rel = Math.max(0, Math.min(width_rel, currentPageWidth - x_rel));
+                height_rel = Math.max(0, Math.min(height_rel, currentPageHeight - y_rel));
+
+                if (width_rel <= 0 || height_rel <= 0) {
+                    alert('La sélection n\'est pas valide pour la page choisie. Ajustez la sélection.');
+                    captureBtn.textContent = '📷 Capturer';
+                    captureBtn.disabled = false;
+                    captureBtn.classList.remove('btn-disabled');
+                    return;
+                }
+
                 const formData = new FormData();
                 formData.append('file', currentPDFFile);
                 formData.append('page', (currentPage - 1).toString());
-                formData.append('x', currentSelection.x.toString());
-                formData.append('y', currentSelection.y.toString());
-                formData.append('width', currentSelection.width.toString());
-                formData.append('height', currentSelection.height.toString());
+                formData.append('x', x_rel.toString());
+                formData.append('y', y_rel.toString());
+                formData.append('width', width_rel.toString());
+                formData.append('height', height_rel.toString());
                 formData.append('scale_factor', currentScale.toString());
                 formData.append('format', 'PNG');
 

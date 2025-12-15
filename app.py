@@ -1347,18 +1347,29 @@ def extract_pdf_region(pdf_bytes, page_num, x_pixels, y_pixels, width_pixels, he
 
         # Définir le rectangle à extraire (en PDF points)
         # (x0, y0, x1, y1)
-        rect = fitz.Rect(
-            max(0, x_points), 
-            max(0, y_points), 
-            min(page_width_points, x_points + width_points), 
-            min(page_height_points, y_points + height_points)
-        )
-        
+        x0 = max(0.0, x_points)
+        y0 = max(0.0, y_points)
+        x1 = min(page_width_points, x_points + width_points)
+        y1 = min(page_height_points, y_points + height_points)
+
+        rect = fitz.Rect(x0, y0, x1, y1)
+
+        # Validate rect dimensions
+        rect_width = rect.x1 - rect.x0
+        rect_height = rect.y1 - rect.y0
+        if rect_width <= 0 or rect_height <= 0:
+            raise ValueError(f"Invalid extraction rectangle (width={rect_width}, height={rect_height}). Check selection and scale.")
+
         # Rendu haute résolution (par ex. 300 DPI)
-        output_scale = 300 / 72 
+        output_scale = 300.0 / 72.0
         mat = fitz.Matrix(output_scale, output_scale)
-        
-        pix = page.get_pixmap(matrix=mat, clip=rect)
+
+        try:
+            pix = page.get_pixmap(matrix=mat, clip=rect)
+        except Exception as e_pix:
+            # Log detailed info and re-raise a clearer error
+            print(f"get_pixmap failed: page_size={page_width_points}x{page_height_points}, rect={rect}, scale={display_scale}, error={e_pix}")
+            raise
         
         # Convert to bytes
         if format.upper() == 'JPEG' or format.upper() == 'JPG':
