@@ -4,63 +4,127 @@
     <meta charset="UTF-8">
     <title>Signer un Document PDF</title>
     <style>
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 40px; }
-        .container { max-width: 700px; margin: 0 auto; background: white; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
-        .back-link { display: inline-block; margin-bottom: 20px; color: #667eea; text-decoration: none; font-weight: bold; }
-        h1 { text-align: center; color: #333; margin-bottom: 30px; }
-        .step-box { background: #f8f9fa; border: 2px dashed #ddd; padding: 30px; border-radius: 10px; margin-bottom: 20px; text-align: center; transition: 0.3s; cursor: pointer; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 20px; margin: 0; }
+        .header-nav { margin-bottom: 20px; }
+        .back-link { display: inline-block; color: #667eea; text-decoration: none; font-weight: bold; }
+        .layout { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .panel { background: white; padding: 20px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin: 0 0 15px; }
+        .step-box { background: #f8f9fa; border: 2px dashed #ddd; padding: 20px; border-radius: 10px; margin-bottom: 20px; text-align: center; transition: 0.3s; cursor: pointer; }
         .step-box:hover { border-color: #667eea; background: #f0f4ff; }
         .step-box.active { border-color: #2ecc71; background: #e8f5e9; }
         .step-title { font-weight: bold; display: block; margin-bottom: 10px; color: #555; }
-        .input-text-zone { margin-top: 20px; background: #fff; padding: 20px; border: 1px solid #eee; border-radius: 10px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 8px; font-weight: 600; color: #555; }
-        select { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em; box-sizing: border-box; }
-        button.action-btn { width: 100%; padding: 15px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.1em; cursor: pointer; font-weight: 600; margin-top: 20px; }
+        .input-text-zone { margin-top: 10px; background: #fff; padding: 10px; border: 1px solid #eee; border-radius: 10px; }
+        .form-group { margin-bottom: 10px; }
+        label { display: block; margin-bottom: 6px; font-weight: 600; color: #555; }
+        select, input[type="number"] { width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 8px; font-size: 1em; box-sizing: border-box; }
+        button.action-btn { width: 100%; padding: 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; border: none; border-radius: 10px; font-size: 1.05em; cursor: pointer; font-weight: 600; margin-top: 10px; }
         button:disabled { background: #ccc; cursor: not-allowed; opacity: 0.7; }
-        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 20px auto; display: none; }
+        .loader { border: 4px solid #f3f3f3; border-top: 4px solid #667eea; border-radius: 50%; width: 30px; height: 30px; animation: spin 1s linear infinite; margin: 10px auto; display: none; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        .download-zone { text-align: center; margin-top: 20px; display: none; }
-        .download-link { background: #28a745; color: white; padding: 12px 25px; text-decoration: none; border-radius: 50px; display: inline-block; }
+        .download-zone { text-align: center; margin-top: 10px; display: none; }
+        .download-link { background: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 50px; display: inline-block; }
+        .viewer-area { background: #525659; position: relative; height: 70vh; border-radius: 12px; overflow: hidden; }
+        .viewer-container { position: relative; width: 100%; height: 100%; }
+        #pdfCanvas { display: block; margin: 0 auto; background: white; max-width: 100%; max-height: 100%; display: none; }
+        .placeholder { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center; color: white; }
+        .icon { font-size: 3.2em; margin-bottom: 12px; display: block; opacity: 0.8; }
+        .hint { margin: 0; font-weight: normal; opacity: 0.9; }
+        .overlay-layer { position: absolute; inset: 0; pointer-events: none; }
+        .signature-overlay { position: absolute; border: 2px dashed #667eea; border-radius: 6px; cursor: move; background: rgba(102,126,234,0.1); pointer-events: auto; display: none; }
+        .signature-overlay img { display: block; width: 100%; height: 100%; object-fit: contain; }
+        .sig-resize { position: absolute; width: 12px; height: 12px; right: -6px; bottom: -6px; background: #667eea; border-radius: 50%; cursor: se-resize; }
+        .controls { display: flex; gap: 10px; align-items: center; margin: 10px 0; }
+        .debug-info { font-size: 0.8em; color: #666; margin-top: 10px; }
+        .pdf-navigation { display: none; justify-content: center; align-items: center; gap: 10px; margin-bottom: 10px; background: #f8f9fa; padding: 10px; border-radius: 8px; }
+        .pdf-navigation button { padding: 8px 16px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+        .pdf-navigation button:disabled { background: #ccc; cursor: not-allowed; }
+        .pdf-navigation span { font-weight: 600; color: #333; }
     </style>
 </head>
 <body>
-    <a href="/" class="back-link">← Retour Accueil</a>
-    <div class="container">
-        <h1>Signer un Document PDF</h1>
-        <p style="text-align: center; color: #666; margin-bottom: 30px;">Téléchargez votre PDF et votre signature.</p>
-
-        <div class="step-box" id="dropZoneSource" onclick="document.getElementById('pdfInput').click()">
-            <span class="step-title">1. Cliquez ou Glissez votre PDF ici</span>
-            <input type="file" id="pdfInput" accept=".pdf" style="display: none;">
-        </div>
-
-        <div class="step-box" id="dropZoneSignature" onclick="document.getElementById('signatureInput').click()">
-            <span class="step-title">2. Cliquez ou Glissez votre signature ici (PNG)</span>
-            <input type="file" id="signatureInput" accept=".png" style="display: none;">
-        </div>
-
-        <div class="input-text-zone">
-            <div class="form-group">
-                <label>3. Localisation de la signature :</label>
-                <select id="signaturePosition">
-                    <option value="bottom-left">Bas Gauche</option>
-                    <option value="bottom-right">Bas Droite</option>
-                    <option value="bottom-center">Bas Centre</option>
-                </select>
-            </div>
-        </div>
-
-        <button id="processBtn" class="action-btn" disabled>Signer le document</button>
-
-        <div id="loader" class="loader"></div>
-        <div id="result" class="download-zone"></div>
+    <div class="header-nav">
+        <a href="/" class="back-link">← Retour Accueil</a>
     </div>
 
+    <div class="layout">
+        <div class="panel">
+            <h1>✍️ Signature de Document PDF</h1>
+            <div class="step-box" id="dropZoneSource" onclick="document.getElementById('pdfInput').click()">
+                <span class="step-title">1. Cliquez ou Glissez votre PDF ici</span>
+                <input type="file" id="pdfInput" accept=".pdf" style="display: none;">
+            </div>
+            <div class="step-box" id="dropZoneSignature" onclick="document.getElementById('signatureInput').click()">
+                <span class="step-title">2. Cliquez ou Glissez votre signature ici (PNG)</span>
+                <input type="file" id="signatureInput" accept=".png" style="display: none;">
+            </div>
+            <div class="input-text-zone">
+                <div class="form-group">
+                    <label>3. Page à signer :</label>
+                    <select id="signaturePage">
+                        <option value="current">Page actuelle</option>
+                        <option value="last">Dernière page</option>
+                        <option value="all">Toutes les pages</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>4. Position prédéfinie (si vous n'utilisez pas le placement libre) :</label>
+                    <select id="signaturePosition">
+                        <option value="bottom-left">Bas Gauche</option>
+                        <option value="bottom-right">Bas Droite</option>
+                        <option value="bottom-center">Bas Centre</option>
+                    </select>
+                </div>
+                <div class="controls">
+                    <label for="sigScale" style="margin:0;">Taille (% largeur):</label>
+                    <input type="number" id="sigScale" min="5" max="60" value="25" style="width:90px;">
+                    <button id="centerBottomBtn" type="button">Bas centre</button>
+                </div>
+                <div class="debug-info" id="debugInfo"></div>
+            </div>
+            <button id="processBtn" class="action-btn" disabled>Signer le document</button>
+            <div id="loader" class="loader"></div>
+            <div id="result" class="download-zone"></div>
+        </div>
+
+        <div class="panel">
+            <h1>👁️ Prévisualisation</h1>
+            <div class="pdf-navigation" id="pdfNavigation">
+                <button id="prevPage">◀ Précédent</button>
+                <span id="pageInfo">Page 1 / 1</span>
+                <button id="nextPage">Suivant ▶</button>
+            </div>
+            <div class="viewer-area" id="viewerArea">
+                <div id="placeholder" class="placeholder">
+                    <span class="icon">📄</span>
+                    <h2 class="hint">Glissez un PDF à gauche ou cliquez sur "PDF"</h2>
+                </div>
+                <div class="viewer-container">
+                    <canvas id="pdfCanvas"></canvas>
+                    <div class="overlay-layer" id="overlayLayer">
+                        <div id="sigOverlay" class="signature-overlay">
+                            <img id="sigImg" alt="signature" />
+                            <div class="sig-resize" id="sigResize"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
+        // Configuration de PDF.js
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
         let pdfFile = null;
         let signatureFile = null;
-
+        let pdfDoc = null;
+        let currentPage = 1;
+        let totalPages = 0;
+        let pdfPageWidth = 0;
+        let pdfPageHeight = 0;
+        
         const dropZonePDF = document.getElementById('dropZoneSource');
         const dropZonePNG = document.getElementById('dropZoneSignature');
         const pdfInput = document.getElementById('pdfInput');
@@ -68,18 +132,33 @@
         const processBtn = document.getElementById('processBtn');
         const loader = document.getElementById('loader');
         const resultDiv = document.getElementById('result');
+        const pdfCanvas = document.getElementById('pdfCanvas');
+        const placeholder = document.getElementById('placeholder');
+        const overlayLayer = document.getElementById('overlayLayer');
+        const sigOverlay = document.getElementById('sigOverlay');
+        const sigImg = document.getElementById('sigImg');
+        const sigResize = document.getElementById('sigResize');
+        const sigScaleInput = document.getElementById('sigScale');
+        const centerBottomBtn = document.getElementById('centerBottomBtn');
+        const debugInfo = document.getElementById('debugInfo');
+        const pdfNavigation = document.getElementById('pdfNavigation');
+        const prevPageBtn = document.getElementById('prevPage');
+        const nextPageBtn = document.getElementById('nextPage');
+        const pageInfo = document.getElementById('pageInfo');
+        const signaturePageSelect = document.getElementById('signaturePage');
 
-        // Drag & Drop setup for both zones
+        let canvasW = 0, canvasH = 0;
+        let sigW = 0, sigH = 0;
+        let dragging = false, resizing = false;
+        let dragStartX = 0, dragStartY = 0;
+        let overlayStartLeft = 0, overlayStartTop = 0;
+
         function setupDrop(zone, onFiles) {
             ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(evt => {
                 zone.addEventListener(evt, (e) => { e.preventDefault(); e.stopPropagation(); }, false);
             });
-            ['dragenter', 'dragover'].forEach(evt => {
-                zone.addEventListener(evt, () => zone.classList.add('active'), false);
-            });
-            ['dragleave', 'drop'].forEach(evt => {
-                zone.addEventListener(evt, () => zone.classList.remove('active'), false);
-            });
+            ['dragenter', 'dragover'].forEach(evt => { zone.addEventListener(evt, () => zone.classList.add('active'), false); });
+            ['dragleave', 'drop'].forEach(evt => { zone.addEventListener(evt, () => zone.classList.remove('active'), false); });
             zone.addEventListener('drop', (e) => onFiles(e.dataTransfer.files));
         }
 
@@ -88,58 +167,283 @@
             if (f && f.type === 'application/pdf') {
                 pdfFile = f;
                 dropZonePDF.querySelector('.step-title').innerText = "✅ PDF sélectionné: " + f.name;
+                showPDFInViewer(f);
                 updateButton();
-            } else {
-                alert('Veuillez déposer un fichier PDF.');
-            }
+            } else { alert('Veuillez déposer un fichier PDF.'); }
         });
-
+        
         setupDrop(dropZonePNG, (files) => {
             const f = files[0];
             if (f && (f.type === 'image/png' || f.name.toLowerCase().endsWith('.png'))) {
                 signatureFile = f;
                 dropZonePNG.querySelector('.step-title').innerText = "✅ Signature sélectionnée: " + f.name;
+                loadSignatureImage();
                 updateButton();
-            } else {
-                alert('Veuillez déposer une image PNG.');
-            }
+            } else { alert('Veuillez déposer une image PNG.'); }
         });
 
-        // Fallback input
         pdfInput.addEventListener('change', (e) => {
             const f = e.target.files[0];
             if (f && f.type === 'application/pdf') {
                 pdfFile = f;
                 dropZonePDF.querySelector('.step-title').innerText = "✅ PDF sélectionné: " + f.name;
+                showPDFInViewer(f);
                 updateButton();
-            } else {
-                alert('Veuillez choisir un PDF.');
-            }
+            } else { alert('Veuillez choisir un PDF.'); }
         });
-
+        
         signatureInput.addEventListener('change', (e) => {
             const f = e.target.files[0];
             if (f && (f.type === 'image/png' || f.name.toLowerCase().endsWith('.png'))) {
                 signatureFile = f;
                 dropZonePNG.querySelector('.step-title').innerText = "✅ Signature sélectionnée: " + f.name;
+                loadSignatureImage();
                 updateButton();
-            } else {
-                alert('Veuillez choisir un PNG.');
+            } else { alert('Veuillez choisir un PNG.'); }
+        });
+
+        async function showPDFInViewer(file) {
+            const arrayBuffer = await file.arrayBuffer();
+            pdfDoc = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+            
+            totalPages = pdfDoc.numPages;
+            currentPage = 1; // Commencer à la première page
+            
+            // Afficher la navigation si plusieurs pages
+            if (totalPages > 1) {
+                pdfNavigation.style.display = 'flex';
+            }
+            
+            await renderPage(currentPage);
+            updatePageInfo();
+        }
+
+        async function renderPage(pageNum) {
+            const page = await pdfDoc.getPage(pageNum);
+            const viewport = page.getViewport({scale: 1});
+            
+            // Dimensions réelles du PDF en points
+            pdfPageWidth = viewport.width;
+            pdfPageHeight = viewport.height;
+            
+            // Calculer l'échelle pour afficher le PDF
+            const maxWidth = overlayLayer.parentElement.clientWidth - 40;
+            const maxHeight = overlayLayer.parentElement.clientHeight - 40;
+            const scale = Math.min(maxWidth / pdfPageWidth, maxHeight / pdfPageHeight);
+            
+            const scaledViewport = page.getViewport({scale: scale});
+            
+            canvasW = scaledViewport.width;
+            canvasH = scaledViewport.height;
+            
+            pdfCanvas.width = canvasW;
+            pdfCanvas.height = canvasH;
+            
+            // Positionner l'overlay pour correspondre au canvas
+            overlayLayer.style.width = canvasW + 'px';
+            overlayLayer.style.height = canvasH + 'px';
+            overlayLayer.style.position = 'absolute';
+            overlayLayer.style.left = '50%';
+            overlayLayer.style.top = '50%';
+            overlayLayer.style.transform = 'translate(-50%, -50%)';
+            
+            const renderContext = {
+                canvasContext: pdfCanvas.getContext('2d'),
+                viewport: scaledViewport
+            };
+            
+            await page.render(renderContext).promise;
+            
+            placeholder.style.display = 'none';
+            pdfCanvas.style.display = 'block';
+            
+            updateOverlaySize();
+            
+            // Toujours afficher la signature si elle est chargée
+            if (signatureFile) {
+                sigOverlay.style.display = 'block';
+                placeOverlayBottomCenter();
+            }
+        }
+
+        function updatePageInfo() {
+            pageInfo.textContent = `Page ${currentPage} / ${totalPages}`;
+            prevPageBtn.disabled = currentPage <= 1;
+            nextPageBtn.disabled = currentPage >= totalPages;
+        }
+
+        prevPageBtn.addEventListener('click', async () => {
+            if (currentPage > 1) {
+                currentPage--;
+                await renderPage(currentPage);
+                updatePageInfo();
             }
         });
+
+        nextPageBtn.addEventListener('click', async () => {
+            if (currentPage < totalPages) {
+                currentPage++;
+                await renderPage(currentPage);
+                updatePageInfo();
+            }
+        });
+
+        function loadSignatureImage() {
+            if (!signatureFile) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                sigImg.src = reader.result;
+                sigOverlay.style.display = 'block';
+                updateOverlaySize();
+            };
+            reader.readAsDataURL(signatureFile);
+        }
 
         function updateButton() {
             processBtn.disabled = !(pdfFile && signatureFile);
         }
 
+        function updateOverlaySize() {
+            const pct = parseFloat(sigScaleInput.value || '25');
+            sigW = (pct / 100) * canvasW;
+            
+            const temp = new Image();
+            temp.onload = () => {
+                const aspect = temp.height / temp.width;
+                sigH = sigW * aspect;
+                sigOverlay.style.width = sigW + 'px';
+                sigOverlay.style.height = sigH + 'px';
+                clampOverlay();
+                updateDebugInfo();
+            };
+            if (sigImg.src) temp.src = sigImg.src;
+        }
+        
+        sigScaleInput.addEventListener('input', updateOverlaySize);
+
+        function placeOverlayBottomCenter() {
+            const left = (canvasW - sigW) / 2;
+            const top = canvasH - (sigH + 20);
+            sigOverlay.style.left = left + 'px';
+            sigOverlay.style.top = top + 'px';
+            updateDebugInfo();
+        }
+        
+        centerBottomBtn.addEventListener('click', placeOverlayBottomCenter);
+
+        function clampOverlay() {
+            let left = parseFloat(sigOverlay.style.left || '0');
+            let top = parseFloat(sigOverlay.style.top || '0');
+            left = Math.max(0, Math.min(canvasW - sigW, left));
+            top = Math.max(0, Math.min(canvasH - sigH, top));
+            sigOverlay.style.left = left + 'px';
+            sigOverlay.style.top = top + 'px';
+        }
+
+        sigOverlay.addEventListener('mousedown', (e) => {
+            if (e.target === sigResize) return;
+            dragging = true;
+            dragStartX = e.clientX; 
+            dragStartY = e.clientY;
+            overlayStartLeft = parseFloat(sigOverlay.style.left || '0');
+            overlayStartTop = parseFloat(sigOverlay.style.top || '0');
+            e.preventDefault();
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (!dragging && !resizing) return;
+            if (dragging) {
+                const dx = e.clientX - dragStartX;
+                const dy = e.clientY - dragStartY;
+                sigOverlay.style.left = (overlayStartLeft + dx) + 'px';
+                sigOverlay.style.top = (overlayStartTop + dy) + 'px';
+                clampOverlay();
+                updateDebugInfo();
+            }
+            if (resizing) {
+                const dx = e.clientX - dragStartX;
+                const newW = Math.max(20, Math.min(canvasW, overlayStartLeft + sigW + dx) - overlayStartLeft);
+                const pct = (newW / canvasW) * 100;
+                sigScaleInput.value = Math.round(pct);
+                updateOverlaySize();
+            }
+        });
+        
+        document.addEventListener('mouseup', () => { 
+            dragging = false; 
+            resizing = false; 
+        });
+
+        sigResize.addEventListener('mousedown', (e) => {
+            resizing = true;
+            dragStartX = e.clientX; 
+            dragStartY = e.clientY;
+            overlayStartLeft = parseFloat(sigOverlay.style.left || '0');
+            overlayStartTop = parseFloat(sigOverlay.style.top || '0');
+            e.preventDefault();
+        });
+
+        function getOverlayPercents() {
+            // Position en pixels sur le canvas
+            const left = parseFloat(sigOverlay.style.left || '0');
+            const top = parseFloat(sigOverlay.style.top || '0');
+            
+            // Convertir en pourcentage des dimensions du canvas
+            const xPct = (left / canvasW) * 100;
+            const yPct = (top / canvasH) * 100;
+            
+            // PDF mesure depuis le bas, donc inverser Y
+            const yPctFromBottom = 100 - yPct - ((sigH / canvasH) * 100);
+            
+            const scalePct = parseFloat(sigScaleInput.value || '25');
+            
+            return { 
+                xPct: Math.max(0, Math.min(100, xPct)), 
+                yPct: Math.max(0, Math.min(100, yPctFromBottom)), 
+                scalePct: Math.max(5, Math.min(100, scalePct)) 
+            };
+        }
+
+        function updateDebugInfo() {
+            if (!pdfPageWidth || !canvasW) return;
+            const { xPct, yPct, scalePct } = getOverlayPercents();
+            debugInfo.innerHTML = `
+                Canvas: ${canvasW.toFixed(0)}x${canvasH.toFixed(0)}px<br>
+                PDF: ${pdfPageWidth.toFixed(0)}x${pdfPageHeight.toFixed(0)}pts<br>
+                Position: X=${xPct.toFixed(1)}%, Y=${yPct.toFixed(1)}% (depuis bas)<br>
+                Taille: ${scalePct.toFixed(1)}%<br>
+                Page actuelle: ${currentPage} / ${totalPages}
+            `;
+        }
+
         processBtn.addEventListener('click', async () => {
             if (!pdfFile || !signatureFile) return;
+            
             const position = document.getElementById('signaturePosition').value;
+            const pageOption = signaturePageSelect.value;
+            
+            // Déterminer quelle(s) page(s) signer
+            let targetPage;
+            if (pageOption === 'current') {
+                targetPage = currentPage;
+            } else if (pageOption === 'last') {
+                targetPage = totalPages;
+            } else if (pageOption === 'all') {
+                targetPage = 'all';
+            }
 
             const formData = new FormData();
             formData.append('pdf', pdfFile);
             formData.append('signature', signatureFile);
             formData.append('position', position);
+            formData.append('targetPage', String(targetPage));
+            
+            const { xPct, yPct, scalePct } = getOverlayPercents();
+            formData.append('posX', String(xPct));
+            formData.append('posY', String(yPct));
+            formData.append('sigScale', String(scalePct));
+
+            console.log('Envoi des coordonnées:', { xPct, yPct, scalePct, targetPage });
 
             processBtn.disabled = true;
             loader.style.display = 'block';
@@ -149,18 +453,13 @@
             try {
                 const res = await fetch('/api/sign', { method: 'POST', body: formData });
                 const data = await res.json();
-
                 if (data.success) {
                     resultDiv.innerHTML = `
                         <p style="color:green; font-weight:bold;">✅ Document signé !</p>
-                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-link">
-                            ⬇️ Télécharger le PDF signé
-                        </a>
+                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}" class="download-link">⬇️ Télécharger le PDF signé</a>
                     `;
                     resultDiv.style.display = 'block';
-                } else {
-                    alert('Erreur: ' + data.error);
-                }
+                } else { alert('Erreur: ' + data.error); }
             } catch (err) {
                 console.error(err);
                 alert('Erreur technique');
