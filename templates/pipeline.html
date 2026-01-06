@@ -2,266 +2,236 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <title>Pipeline PDF Automatisé</title>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.14.0/Sortable.min.js"></script>
+    <title>Pipeline PDF - Drawflow</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        /* Styles CSS inchangés - je reprends la version "scroll" corrigée */
-        body { font-family: 'Segoe UI', sans-serif; background: #f4f6f9; padding: 20px; display: flex; flex-direction: column; height: 100vh; margin: 0; box-sizing: border-box; }
-        .header { margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; }
-        .back-link { color: #667eea; text-decoration: none; font-weight: bold; }
-        .main-layout { display: flex; gap: 30px; flex: 1; overflow: hidden; min-height: 0; }
-        .toolbox { width: 300px; min-width: 300px; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow-y: auto; height: 100%; box-sizing: border-box; }
-        .toolbox h3 { margin-top: 0; color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-bottom: 20px; flex-shrink: 0; }
-        .tool-item { background: #f8f9fa; border: 1px solid #ddd; padding: 15px; margin-bottom: 10px; border-radius: 8px; cursor: grab; display: flex; align-items: center; gap: 10px; font-weight: 600; color: #555; transition: 0.2s; user-select: none; flex-shrink: 0; }
-        .tool-item:hover { border-color: #667eea; background: #eef2ff; transform: translateX(5px); }
-        .tool-icon { font-size: 1.2em; }
-        .pipeline-area { flex: 1; background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.05); display: flex; flex-direction: column; overflow-y: auto; height: 100%; box-sizing: border-box; }
-        .upload-section { border: 2px dashed #667eea; background: #f8f9ff; padding: 20px; text-align: center; border-radius: 10px; margin-bottom: 20px; cursor: pointer; transition: 0.3s; flex-shrink: 0; }
-        .upload-section:hover { background: #e0e7ff; }
-        .pipeline-dropzone { flex-grow: 1; background: #f0f2f5; border: 2px dashed #ccc; border-radius: 10px; padding: 20px; min-height: 200px; display: flex; flex-direction: column; gap: 15px; height: auto; overflow: visible; flex-shrink: 0; }
-        .pipeline-dropzone.empty::after { content: 'Glissez les outils ici pour créer votre chaîne...'; color: #999; display: block; text-align: center; margin-top: 50px; }
-        .pipeline-block { background: white; border-left: 5px solid #667eea; padding: 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); position: relative; animation: fadeIn 0.3s; flex-shrink: 0; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .block-header { display: flex; justify-content: space-between; font-weight: bold; margin-bottom: 10px; color: #333; }
-        .remove-block { color: #ff4757; cursor: pointer; border: none; background: none; font-size: 1.2em; font-weight: bold; }
-        .block-config { display: flex; gap: 15px; flex-wrap: wrap; background: #f9f9f9; padding: 10px; border-radius: 5px; align-items: center; }
-        .input-group { display: flex; flex-direction: column; flex: 1; min-width: 150px; }
-        .input-group label { font-size: 0.8em; color: #666; margin-bottom: 4px; font-weight: 600; }
-        input[type="text"], input[type="number"], select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; width: 100%; box-sizing: border-box; }
-        .file-status { font-size: 0.8em; color: green; display: none; margin-top: 5px; font-weight: bold; }
-        .run-btn { background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white; border: none; padding: 15px; font-size: 1.2em; font-weight: bold; border-radius: 10px; cursor: pointer; margin-top: 20px; width: 100%; transition: 0.3s; flex-shrink: 0; margin-bottom: 20px; }
-        .run-btn:disabled { background: #ccc; cursor: not-allowed; }
-        #resultArea { flex-shrink: 0; padding-bottom: 20px; }
+        body { font-family: 'Segoe UI', sans-serif; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+
+        /* BARRE LATÉRALE */
+        .sidebar {
+            width: 250px; background: #f8f9fa; border-right: 1px solid #ddd;
+            display: flex; flex-direction: column; padding: 20px; z-index: 10;
+        }
+
+        /* BOUTON RETOUR ACCUEIL (NOUVEAU) */
+        .btn-back-home {
+            display: flex; align-items: center; gap: 10px;
+            background: #e9ecef; color: #495057; text-decoration: none;
+            padding: 12px; border-radius: 8px; font-weight: bold; font-size: 0.95rem;
+            margin-bottom: 20px; transition: 0.2s; border: 1px solid #dee2e6;
+        }
+        .btn-back-home:hover { background: #dee2e6; color: #212529; border-color: #ced4da; }
+        .btn-back-home i { font-size: 1.1rem; }
+
+        .drag-item {
+            background: white; border: 1px solid #ddd; padding: 15px; margin-bottom: 10px;
+            border-radius: 8px; cursor: grab; display: flex; align-items: center; gap: 10px; transition: 0.2s;
+        }
+        .drag-item:hover { transform: translateX(3px); border-color: #667eea; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+
+        /* ZONE PRINCIPALE */
+        .wrapper { flex: 1; position: relative; }
+        #drawflow { width: 100%; height: 100%; background: #f0f2f5; background-size: 25px 25px; background-image: radial-gradient(#d1d5db 1px, transparent 1px); }
+
+        /* DRAWFLOW NODES */
+        .drawflow .drawflow-node { background: white; width: 160px; padding: 0; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .drawflow .drawflow-node.selected { border: 2px solid #667eea; }
+        .node-header { padding: 10px; border-radius: 8px 8px 0 0; color: white; font-weight: bold; display: flex; align-items: center; gap: 8px; }
+        .node-body { padding: 15px; }
+        .node-body input, .node-body select { width: 100%; box-sizing: border-box; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; padding: 4px; }
+
+        /* Couleurs */
+        .header-rotate { background: #f1c40f; } .header-split { background: #e74c3c; }
+        .header-protect { background: #34495e; } .header-watermark { background: #9b59b6; }
+        .header-convert { background: #3498db; } .header-sign { background: #e67e22; }
+
+        /* Ports */
+        .drawflow .drawflow-node .input, .drawflow .drawflow-node .output { width: 15px; height: 15px; background: #9ca3af; border: 2px solid white; }
+        .drawflow .drawflow-node .input:hover, .drawflow .drawflow-node .output:hover { background: #667eea; }
+
+        /* Contrôles bas */
+        .controls { position: absolute; bottom: 30px; right: 30px; display: flex; gap: 15px; padding: 15px; background: white; border-radius: 12px; box-shadow: 0 10px 15px rgba(0,0,0,0.1); }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; color: white; display: flex; align-items: center; gap: 8px; }
+        .btn-upload { background: #667eea; } .btn-run { background: #10b981; } .btn-clear { background: #ef4444; }
+        .btn:disabled { background: #ccc; cursor: not-allowed; }
+
+        /* Preview Signature */
+        .sig-preview { width: 100%; height: 40px; object-fit: contain; margin-top: 5px; border: 1px dashed #ccc; display:none; background: #f9f9f9; }
     </style>
 </head>
 <body>
 
-    <div class="header">
-        <a href="/" class="back-link">← Retour Accueil</a>
-        <h2 style="margin:0; color:#333;">⛓️ Pipeline de Traitement PDF</h2>
-        <div style="width: 100px;"></div>
+<div class="sidebar">
+    <a href="/" class="btn-back-home">
+        <i class="fa-solid fa-arrow-left"></i> Retour Accueil
+    </a>
+
+    <h2 style="margin-top:0; font-size:1.1rem; color:#666;">🛠️ Outils</h2>
+
+    <div class="drag-item" draggable="true" ondragstart="drag(event)" data-node="rotate"><i class="fa-solid fa-rotate" style="color:#f1c40f"></i> Rotation</div>
+    <div class="drag-item" draggable="true" ondragstart="drag(event)" data-node="split"><i class="fa-solid fa-scissors" style="color:#e74c3c"></i> Diviser (Split)</div>
+    <div class="drag-item" draggable="true" ondragstart="drag(event)" data-node="protect"><i class="fa-solid fa-lock" style="color:#34495e"></i> Protéger</div>
+    <div class="drag-item" draggable="true" ondragstart="drag(event)" data-node="watermark"><i class="fa-solid fa-stamp" style="color:#9b59b6"></i> Filigrane</div>
+    <div class="drag-item" draggable="true" ondragstart="drag(event)" data-node="sign"><i class="fa-solid fa-signature" style="color:#e67e22"></i> Signer</div>
+    <div class="drag-item" draggable="true" ondragstart="drag(event)" data-node="pdf-to-docx"><i class="fa-solid fa-file-word" style="color:#3498db"></i> Vers Word</div>
+
+    <div style="margin-top:auto; font-size:0.8rem; color:#aaa; text-align:center;">
+        Glissez les blocs et reliez les points.
     </div>
+</div>
 
-    <div class="main-layout">
-        <div class="toolbox">
-            <h3>🧰 Outils</h3>
-            <div id="toolboxList">
-                <div class="tool-item" data-type="rotate">
-                    <span class="tool-icon">🔄</span> Rotation
-                </div>
-                <div class="tool-item" data-type="watermark">
-                    <span class="tool-icon">©️</span> Filigrane
-                </div>
-                <div class="tool-item" data-type="signature">
-                    <span class="tool-icon">✍️</span> Signature
-                </div>
-                <div class="tool-item" data-type="split">
-                    <span class="tool-icon">🔪</span> Diviser (ZIP)
-                </div>
-                <div class="tool-item" data-type="pdf2jpeg">
-                    <span class="tool-icon">🖼️</span> PDF vers JPEG (ZIP)
-                </div>
-            </div>
-        </div>
-
-        <div class="pipeline-area">
-            <div class="upload-section" onclick="document.getElementById('fileInput').click()">
-                <div id="fileLabel">📁 <b>Départ :</b> Cliquez pour charger le PDF principal</div>
-                <input type="file" id="fileInput" accept=".pdf" style="display: none;">
-            </div>
-
-            <h3 style="color:#555;">Flux de traitement</h3>
-            <div id="pipelineList" class="pipeline-dropzone empty"></div>
-
-            <button id="runBtn" class="run-btn" disabled onclick="runPipeline()">🚀 Lancer le Pipeline</button>
-            <div id="resultArea"></div>
-        </div>
+<div class="wrapper">
+    <div id="drawflow"></div>
+    <div class="controls">
+        <button class="btn btn-clear" onclick="editor.clearModuleSelected()">
+            <i class="fa-solid fa-trash"></i> Vider
+        </button>
+        <button class="btn btn-upload" onclick="document.getElementById('fileInput').click()">
+            <i class="fa-solid fa-folder-open"></i>
+            <span id="fileName">Choisir Fichier</span>
+        </button>
+        <input type="file" id="fileInput" hidden onchange="handleFile(this)">
+        <button class="btn btn-run" id="runBtn" disabled onclick="executeFlow()">
+            <i class="fa-solid fa-play"></i> Lancer
+        </button>
     </div>
+</div>
 
-    <script>
-        const toolbox = document.getElementById('toolboxList');
-        const pipeline = document.getElementById('pipelineList');
-        let currentFile = null;
+<script src="https://cdn.jsdelivr.net/gh/jerosoler/Drawflow/dist/drawflow.min.js"></script>
+<script>
+    var id = document.getElementById("drawflow");
+    const editor = new Drawflow(id);
+    editor.reroute = true;
+    editor.start();
 
-        new Sortable(toolbox, { group: { name: 'shared', pull: 'clone', put: false }, sort: false, animation: 150 });
-        new Sortable(pipeline, {
-            group: 'shared', animation: 150,
-            onAdd: (evt) => {
-                pipeline.classList.remove('empty');
-                renderBlockConfig(evt.item, evt.item.getAttribute('data-type'));
-                updateRunButton();
-            },
-            onUpdate: () => updateRunButton(),
-            onRemove: () => {
-                if(pipeline.children.length === 0) pipeline.classList.add('empty');
-                updateRunButton();
+    let selectedFile = null;
+
+    function drag(ev) { ev.dataTransfer.setData("node", ev.target.getAttribute('data-node')); }
+    id.addEventListener('drop', (ev) => {
+        ev.preventDefault();
+        const type = ev.dataTransfer.getData("node");
+        addNodeToDrawflow(type, ev.clientX, ev.clientY);
+    });
+    id.addEventListener('dragover', (ev) => ev.preventDefault());
+
+    // Gestion de l'upload d'image de signature dans le bloc
+    window.handleSignatureUpload = function(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const parent = input.parentElement;
+                const hiddenInput = parent.querySelector('input[df-fileData]');
+                const preview = parent.querySelector('.sig-preview');
+                hiddenInput.value = e.target.result;
+                preview.src = e.target.result;
+                preview.style.display = 'block';
             }
+            reader.readAsDataURL(input.files[0]);
+        }
+    }
+
+    function addNodeToDrawflow(type, posx, posy) {
+        if(editor.editor_mode === 'fixed') return false;
+        posx = posx * (editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom)) - (editor.precanvas.getBoundingClientRect().x * (editor.precanvas.clientWidth / (editor.precanvas.clientWidth * editor.zoom)));
+        posy = posy * (editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom)) - (editor.precanvas.getBoundingClientRect().y * (editor.precanvas.clientHeight / (editor.precanvas.clientHeight * editor.zoom)));
+
+        let html = "", hClass = "", inputs = 1, outputs = 1;
+
+        if(type === 'rotate') {
+            hClass = "header-rotate";
+            html = `<div class="node-header ${hClass}"><i class="fa-solid fa-rotate"></i> Rotate</div><div class="node-body"><label>Angle:</label><input type="number" df-angle value="90"></div>`;
+        } else if (type === 'split') {
+            hClass = "header-split"; outputs = 2;
+            html = `<div class="node-header ${hClass}"><i class="fa-solid fa-scissors"></i> Split</div><div class="node-body"><label>Page:</label><input type="number" df-splitPage value="1"><small style="display:block;margin-top:5px;color:#888;">Haut: P1 | Bas: P2</small></div>`;
+        } else if (type === 'protect') {
+            hClass = "header-protect";
+            html = `<div class="node-header ${hClass}"><i class="fa-solid fa-lock"></i> Protect</div><div class="node-body"><input type="text" df-password placeholder="Mot de passe"></div>`;
+        } else if (type === 'watermark') {
+            hClass = "header-watermark";
+            html = `<div class="node-header ${hClass}"><i class="fa-solid fa-stamp"></i> Watermark</div><div class="node-body"><input type="text" df-text placeholder="Texte"></div>`;
+        } else if (type === 'sign') {
+            hClass = "header-sign";
+            html = `
+            <div class="node-header ${hClass}"><i class="fa-solid fa-signature"></i> Signer</div>
+            <div class="node-body">
+                <label style="font-size:10px;">PNG Signature:</label>
+                <input type="file" accept="image/png, image/jpeg" onchange="handleSignatureUpload(this)" style="font-size:10px;">
+                <input type="hidden" df-fileData>
+                <img class="sig-preview">
+                <select df-position style="margin-top:5px; font-size:11px;">
+                    <option value="bottom-right">Bas Droite</option>
+                    <option value="bottom-left">Bas Gauche</option>
+                    <option value="bottom-center">Bas Centre</option>
+                </select>
+            </div>`;
+        } else {
+            hClass = "header-convert";
+            html = `<div class="node-header ${hClass}"><i class="fa-solid fa-file-word"></i> Convert</div><div class="node-body">Vers Word</div>`;
+        }
+        editor.addNode(type, inputs, outputs, posx, posy, hClass, {}, html);
+    }
+
+    function handleFile(input) {
+        if(input.files[0]) {
+            selectedFile = input.files[0];
+            document.getElementById('fileName').innerText = " : " + selectedFile.name;
+            document.getElementById('runBtn').disabled = false;
+        }
+    }
+
+    function updateNodeDataFromInputs() {
+        const nodes = document.querySelectorAll('.drawflow-node');
+        nodes.forEach(nodeEl => {
+            const nodeId = nodeEl.id.replace('node-', '');
+            const inputs = nodeEl.querySelectorAll('input, select');
+            const data = {};
+
+            inputs.forEach(input => {
+                const attr = Array.from(input.attributes).find(a => a.name.startsWith('df-'));
+                if(attr) {
+                    data[attr.name.replace('df-', '')] = input.value;
+                }
+            });
+            editor.drawflow.drawflow.Home.data[nodeId].data = data;
         });
+    }
 
-        document.getElementById('fileInput').addEventListener('change', (e) => {
-            if(e.target.files[0]?.type === 'application/pdf') {
-                currentFile = e.target.files[0];
-                document.getElementById('fileLabel').innerHTML = `✅ Fichier : <b>${currentFile.name}</b>`;
-                document.querySelector('.upload-section').style.borderColor = '#2ecc71';
-                document.querySelector('.upload-section').style.background = '#e8f5e9';
-                updateRunButton();
-            }
-        });
+    async function executeFlow() {
+        updateNodeDataFromInputs();
 
-        function updateRunButton() {
-            document.getElementById('runBtn').disabled = !(currentFile && pipeline.children.length > 0);
+        const exportData = editor.export();
+
+        if(Object.keys(exportData.drawflow.Home.data).length === 0) {
+            alert("Ajoutez des blocs avant de lancer !");
+            return;
         }
 
-        function renderBlockConfig(element, type) {
-            let configHTML = '';
-            let title = '';
-            let color = '#667eea';
+        const btn = document.getElementById('runBtn');
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Traitement...';
+        btn.disabled = true;
 
-            if (type === 'split') {
-                title = '🔪 Diviser';
-                color = '#e74c3c';
-                // J'ai retiré le SELECT pour choisir la partie.
-                configHTML = `
-                    <div class="input-group">
-                        <label>Couper après la page :</label>
-                        <input type="number" class="param-page" value="1" min="1">
-                    </div>
-                    <div style="width:100%; color:#555; font-size:0.9em; margin-top:5px; background:#fff3cd; padding:5px; border-radius:4px;">
-                        📦 Génère une archive <b>ZIP</b> contenant les deux parties.
-                    </div>
-                    <div style="width:100%; color:#e74c3c; font-size:0.8em; margin-top:5px;">⚠️ Doit être en dernière position.</div>`;
-            }
-            else if (type === 'pdf2jpeg') {
-                title = '🖼️ PDF vers JPEG';
-                color = '#9b59b6';
-                configHTML = `<div style="color:#666; font-size:0.9em; padding:5px;">⚠️ Convertit en images ZIP. Doit être en dernière position.</div>`;
-            }
-            else if (type === 'rotate') {
-                title = '🔄 Rotation';
-                configHTML = `
-                    <div class="input-group">
-                        <label>Angle</label>
-                        <select class="param-angle">
-                            <option value="90">90° Horaire</option>
-                            <option value="-90">90° Anti-horaire</option>
-                            <option value="180">180°</option>
-                        </select>
-                    </div>`;
-            } else if (type === 'watermark') {
-                title = '©️ Filigrane';
-                configHTML = `
-                    <div class="input-group" style="flex:2;">
-                        <label>Texte</label>
-                        <input type="text" class="param-text" value="CONFIDENTIEL">
-                    </div>`;
-            } else if (type === 'signature') {
-                title = '✍️ Signature';
-                color = '#e67e22';
-                configHTML = `
-                    <div class="input-group">
-                        <label>Position</label>
-                        <select class="param-pos">
-                            <option value="bottom-right">Bas Droite</option>
-                            <option value="bottom-left">Bas Gauche</option>
-                        </select>
-                    </div>
-                    <div class="input-group" style="flex:2;">
-                        <label>Image (PNG)</label>
-                        <input type="file" accept="image/png" onchange="handleFileUpload(this)">
-                        <input type="hidden" class="param-file-data">
-                        <div class="file-status">Image chargée !</div>
-                    </div>`;
-            }
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('drawflow_data', JSON.stringify(exportData));
 
-            element.className = 'pipeline-block';
-            element.style.borderLeftColor = color;
-            element.setAttribute('data-action-type', type);
-            element.innerHTML = `
-                <div class="block-header">
-                    <span style="color:${color}">${title}</span>
-                    <button class="remove-block" onclick="this.closest('.pipeline-block').remove(); updateRunButton();">✖</button>
-                </div>
-                <div class="block-config">${configHTML}</div>
-            `;
+        try {
+            const res = await fetch('/api/pipeline_drawflow', { method: 'POST', body: formData });
+            const data = await res.json();
+
+            if(data.success) {
+                window.location.href = `/download/${data.filename}?name=${data.downloadName}`;
+            } else {
+                alert("Erreur Serveur: " + (data.error || "Inconnue"));
+            }
+        } catch (e) {
+            console.error(e);
+            alert("Erreur de connexion.");
+        } finally {
+            btn.innerHTML = '<i class="fa-solid fa-play"></i> Lancer';
+            btn.disabled = false;
         }
-
-        function handleFileUpload(input) {
-            const file = input.files[0];
-            if(file) {
-                const reader = new FileReader();
-                reader.onload = function(e) {
-                    const block = input.closest('.block-config');
-                    block.querySelector('.param-file-data').value = e.target.result;
-                    block.querySelector('.file-status').style.display = 'block';
-                };
-                reader.readAsDataURL(file);
-            }
-        }
-
-        async function runPipeline() {
-            const btn = document.getElementById('runBtn');
-            const resultArea = document.getElementById('resultArea');
-            const blocks = document.querySelectorAll('#pipelineList .pipeline-block');
-            const actions = [];
-
-            for (let i = 0; i < blocks.length; i++) {
-                const block = blocks[i];
-                const type = block.getAttribute('data-action-type');
-
-                // VALIDATION : ZIP si fin de chaîne
-                if ((type === 'split' || type === 'pdf2jpeg') && i !== blocks.length - 1) {
-                    alert(`⚠️ Erreur de logique :\n\nL'outil "${type === 'split' ? 'Diviser' : 'PDF vers JPEG'}" génère un ZIP final.\nIl doit être en DERNIÈRE position.`);
-                    return;
-                }
-
-                const actionData = { type: type };
-
-                if (type === 'rotate') {
-                    actionData.angle = parseInt(block.querySelector('.param-angle').value);
-                } else if (type === 'watermark') {
-                    actionData.text = block.querySelector('.param-text').value;
-                } else if (type === 'split') {
-                    // On ne récupère plus "keep", juste la page
-                    actionData.splitPage = parseInt(block.querySelector('.param-page').value);
-                } else if (type === 'signature') {
-                    actionData.position = block.querySelector('.param-pos').value;
-                    actionData.fileData = block.querySelector('.param-file-data').value;
-                    if(!actionData.fileData) { alert("Image de signature manquante"); return; }
-                }
-
-                actions.push(actionData);
-            }
-
-            const formData = new FormData();
-            formData.append('file', currentFile);
-            formData.append('pipeline', JSON.stringify(actions));
-
-            btn.disabled = true;
-            btn.innerText = "⏳ Traitement en cours...";
-            resultArea.innerHTML = '';
-
-            try {
-                const res = await fetch('/api/pipeline', { method: 'POST', body: formData });
-                const data = await res.json();
-
-                if (data.success) {
-                    resultArea.innerHTML = `
-                        <h3 style="color: green;">✅ Pipeline terminé !</h3>
-                        <a href="/download/${data.filename}?name=${encodeURIComponent(data.downloadName)}"
-                           style="background: #28a745; color: white; padding: 15px 30px; text-decoration: none; border-radius: 50px; font-weight: bold; box-shadow: 0 4px 10px rgba(0,0,0,0.2);">
-                            ⬇️ Télécharger le résultat
-                        </a>`;
-                } else {
-                    alert('Erreur: ' + data.error);
-                }
-            } catch (e) {
-                console.error(e);
-                alert('Erreur technique');
-            } finally {
-                btn.disabled = false;
-                btn.innerText = "🚀 Lancer le Pipeline";
-            }
-        }
-    </script>
+    }
+</script>
 </body>
 </html>
