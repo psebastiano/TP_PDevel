@@ -121,7 +121,13 @@ def protect_interface():
 def pdf_to_jpeg_interface():
     return render_template('pdf_to_jpeg.html')
 
+@app.route('/tool/page_number')
+def page_number_interface():
+    return render_template('page_number.html')
 
+@app.route('/screenshot')
+def screenshot_pdf():
+    return render_template('pdf_screenshot.html')
 # --- ROUTES API ---
 
 @app.route('/upload', methods=['POST'])
@@ -1401,6 +1407,326 @@ def download_file(filename):
     if os.path.exists(filepath):
         return send_file(filepath, as_attachment=True, download_name=download_name)
     return jsonify({'error': 'Fichier introuvable'}), 404
+
+@app.route('/api/page_numbers', methods=['POST'])
+def page_number_action():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Aucun fichier PDF'}), 400
+
+        file = request.files['file']
+        position = request.form.get('position', 'bottom-center')
+
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'Format invalide'}), 400
+
+        # 🔹 حفظ PDF مؤقت
+        temp_input = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        file.save(temp_input.name)
+        temp_input.close()
+
+        reader = PdfReader(temp_input.name)
+        writer = PdfWriter()
+
+        for i, page in enumerate(reader.pages, start=1):
+            w = float(page.mediabox.width)
+            h = float(page.mediabox.height)
+
+            overlay_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+
+            c = canvas.Canvas(overlay_path, pagesize=(w, h))
+            c.setFont("Helvetica", 10)   # ✅ مهم جدًا
+            text = str(i)
+
+            if position == 'bottom-left':
+                x, y = 40, 30
+                c.drawString(x, y, text)
+            elif position == 'bottom-right':
+                x, y = w - 40
+                c.drawRightString(x, 30, text)
+            else:  # bottom-center
+                c.drawCentredString(w / 2, 30, text)
+
+            c.save()  # ✅ إغلاق صحيح
+
+            overlay_reader = PdfReader(overlay_path)
+            page.merge_page(overlay_reader.pages[0])
+            writer.add_page(page)
+
+            os.remove(overlay_path)
+
+        output_path = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf").name
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name="numero.pdf"
+        )
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()   # 🔥 سيظهر الخطأ الحقيقي في التيرمينال
+        return jsonify({'error': 'Erreur serveur'}), 500
+    
+@app.route('/api/pdf_info', methods=['POST'])
+def get_pdf_info():
+    """API endpoint to get PDF information"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'File must be a PDF'}), 400
+        
+        pdf_bytes = file.read()
+        pdf_info = get_pdf_page_info(pdf_bytes)
+        
+        # Generate preview of first page
+        preview = generate_preview_image(pdf_bytes)
+        
+        return jsonify({
+            'success': True,
+            'pdf_info': pdf_info,
+            'preview': preview
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/capture_region', methods=['POST'])
+def api_capture_region():
+    """API endpoint to capture a region from PDF"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'File must be a PDF'}), 400
+        
+        # Get all data
+        page = request.form.get('page', '0')
+        x = request.form.get('x', '0')
+        y = request.form.get('y', '0')
+        width = request.form.get('width', '100')
+        height = request.form.get('height', '100')
+        # viewer_width et viewer_height ne sont plus nécessaires
+        scale_factor = request.form.get('scale_factor', '1.0') # <-- NOUVEAU
+        format = request.form.get('format', 'PNG')
+        
+        # Convert to appropriate types
+        try:
+            page_num = int(page)
+            x_pos = float(x)
+            y_pos = float(y)
+            region_width = float(width)
+            region_height = float(height)
+            display_scale = float(scale_factor) # <-- NOUVEAU
+        except ValueError as ve:
+            return jsonify({'error': f'Invalid coordinate values: {str(ve)}'}), 400
+        
+        # Read PDF file
+        pdf_bytes = file.read()
+        
+        # Extract region
+        image_bytes, mime_type = extract_pdf_region(
+            pdf_bytes,
+            page_num,
+            x_pos,
+            y_pos,
+            region_width,
+            region_height,
+            display_scale, # Passez le facteur d'échelle directement
+            format=format
+        )
+        
+        # Create filename
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        if format.upper() in ['JPEG', 'JPG']:
+            filename = f'capture_{timestamp}.jpg'
+        else:
+            filename = f'capture_{timestamp}.png'
+        
+        # Return image
+        return send_file(
+            io.BytesIO(image_bytes),
+            mimetype=mime_type,
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        print(f"API Error: {traceback.format_exc()}")
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/capture_multiple', methods=['POST'])
+def capture_multiple_regions():
+    """API endpoint to capture multiple regions and return as ZIP"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+        
+        if not allowed_file(file.filename):
+            return jsonify({'error': 'File must be a PDF'}), 400
+        
+        # Get JSON data for multiple regions
+        regions_data = request.form.get('regions', '[]')
+        
+        try:
+            regions = json.loads(regions_data)
+        except json.JSONDecodeError:
+            return jsonify({'error': 'Invalid regions data'}), 400
+        
+        if not regions:
+            return jsonify({'error': 'No regions specified'}), 400
+        
+        pdf_bytes = file.read()
+        
+        # Create a ZIP file in memory
+        zip_buffer = io.BytesIO()
+        
+        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+            for i, region in enumerate(regions):
+                try:
+                    page_num = region.get('page', 0)
+                    x = float(region.get('x', 0))
+                    y = float(region.get('y', 0))
+                    width = float(region.get('width', 100))
+                    height = float(region.get('height', 100))
+                    format = region.get('format', 'PNG')
+                    
+                    # Extract the region
+                    image_bytes, mime_type = extract_pdf_region(
+                        pdf_bytes,
+                        page_num,
+                        x,
+                        y,
+                        width,
+                        height,
+                        display_scale=2,
+                        format=format
+                    )
+                    
+                    # Determine file extension
+                    if 'jpeg' in mime_type or 'jpg' in mime_type:
+                        ext = 'jpg'
+                    else:
+                        ext = 'png'
+                    
+                    # Add to ZIP
+                    filename = f'capture_{i+1:03d}.{ext}'
+                    zip_file.writestr(filename, image_bytes)
+                    
+                except Exception as e:
+                    # Skip failed regions but continue with others
+                    continue
+        
+        zip_buffer.seek(0)
+        
+        # Return ZIP file
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        return send_file(
+            zip_buffer,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f'captures_{timestamp}.zip'
+        )
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def extract_pdf_region(pdf_bytes, page_num, x_pixels, y_pixels, width_pixels, height_pixels, 
+                     display_scale, format='PNG'): # viewer_width/height retirés
+    """
+    Extrait une région d'une page PDF en utilisant le facteur d'échelle du Canvas.
+    """
+    pdf_document = None
+    try:
+        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        page = pdf_document[page_num]
+        
+        page_width_points = page.rect.width
+        page_height_points = page.rect.height
+        
+        # 1. Conversion Pixels Canvas -> Points PDF (simple ratio)
+        # Points = Pixels / Scale
+        x_points = x_pixels / display_scale
+        y_points = y_pixels / display_scale
+        width_points = width_pixels / display_scale
+        height_points = height_pixels / display_scale
+        
+        # La conversion Y n'est plus nécessaire si on suppose que PDF.js 
+        # rend le PDF avec l'origine (0,0) en haut à gauche (ce qui est standard pour Canvas).
+        # Si vous rencontrez un décalage vertical, réactivez: y_points = page_height_points - y_points - height_points
+
+        # Définir le rectangle à extraire (en PDF points)
+        # (x0, y0, x1, y1)
+        x0 = max(0.0, x_points)
+        y0 = max(0.0, y_points)
+        x1 = min(page_width_points, x_points + width_points)
+        y1 = min(page_height_points, y_points + height_points)
+
+        rect = fitz.Rect(x0, y0, x1, y1)
+
+        # Validate rect dimensions
+        rect_width = rect.x1 - rect.x0
+        rect_height = rect.y1 - rect.y0
+        if rect_width <= 0 or rect_height <= 0:
+            raise ValueError(f"Invalid extraction rectangle (width={rect_width}, height={rect_height}). Check selection and scale.")
+
+        # Rendu haute résolution (par ex. 300 DPI)
+        output_scale = 300.0 / 72.0
+        mat = fitz.Matrix(output_scale, output_scale)
+
+        try:
+            pix = page.get_pixmap(matrix=mat, clip=rect)
+        except Exception as e_pix:
+            # Log detailed info and re-raise a clearer error
+            print(f"get_pixmap failed: page_size={page_width_points}x{page_height_points}, rect={rect}, scale={display_scale}, error={e_pix}")
+            raise
+        
+        # Convert to bytes
+        if format.upper() == 'JPEG' or format.upper() == 'JPG':
+            img_bytes = pix.tobytes("jpeg")
+            mime_type = 'image/jpeg'
+        else:
+            img_bytes = pix.tobytes("png")
+            mime_type = 'image/png'
+        
+        print(f"Generated image: {pix.width}x{pix.height} pixels")
+        
+        # IMPORTANT: Keep document open until we're done with pix
+        # The pixmap contains the image data, we can now close the document
+        pdf_document.close()
+        pdf_document = None
+        
+        return img_bytes, mime_type
+        
+    except Exception as e:
+        print(f"Error in extract_pdf_region: {e}")
+        raise Exception(f"Failed to extract region from PDF: {str(e)}")
+    finally:
+        if pdf_document:
+            pdf_document.close()
 
 
 if __name__ == '__main__':
