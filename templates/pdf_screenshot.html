@@ -456,11 +456,14 @@
                             pageDiv.style.width = scaledViewport.width + 'px';
                             pageDiv.style.height = scaledViewport.height + 'px';
                             pageDiv.style.margin = '10px auto';
+                            // mark the page wrapper with a stable attribute for lookups
+                            pageDiv.setAttribute('data-page-number', pageNum);
 
                             const canvas = document.createElement('canvas');
                             canvas.width = scaledViewport.width;
                             canvas.height = scaledViewport.height;
-                            canvas.dataset.page = pageNum;
+                            // give the canvas a stable attribute matching the wrapper
+                            canvas.setAttribute('data-page-number', pageNum);
                             canvas.style.display = 'block';
 
                             pageDiv.appendChild(canvas);
@@ -484,7 +487,9 @@
                                 pageDiv.classList.add('active');
 
                                 currentPage = pageNum;
-                                // pageDiv.offsetTop/Left are offsets relative to pdfContainer
+
+                                // Compute the canvas position relative to the pdfContainer using offsets
+                                // (offsetTop/offsetLeft are relative to the container where activeFrame is appended)
                                 currentPageTop = pageDiv.offsetTop || 0;
                                 currentPageLeft = pageDiv.offsetLeft || 0;
                                 currentPageWidth = pageDiv.clientWidth || scaledViewport.width;
@@ -496,10 +501,8 @@
                                     activeFrame.className = 'active-frame';
                                     pdfContainer.appendChild(activeFrame);
                                 }
-                                const left = currentPageLeft + 'px';
-                                const top = currentPageTop + 'px';
-                                activeFrame.style.left = left;
-                                activeFrame.style.top = top;
+                                activeFrame.style.left = currentPageLeft + 'px';
+                                activeFrame.style.top = currentPageTop + 'px';
                                 activeFrame.style.width = (currentPageWidth) + 'px';
                                 activeFrame.style.height = (currentPageHeight) + 'px';
 
@@ -521,7 +524,8 @@
                         if (firstPage) {
                             pdfContainer.querySelectorAll('.pdf-page.active').forEach(p=>p.classList.remove('active'));
                             firstPage.classList.add('active');
-                            currentPage = parseInt(firstPage.dataset.page, 10) || 1;
+                            // read our consistent data-page-number attribute
+                            currentPage = parseInt(firstPage.getAttribute('data-page-number'), 10) || 1;
                             currentPageTop = firstPage.offsetTop || 0;
                             currentPageLeft = firstPage.offsetLeft || 0;
                             currentPageWidth = firstPage.clientWidth || 0;
@@ -731,12 +735,24 @@
 
                 const formData = new FormData();
                 formData.append('file', currentPDFFile);
+                // Attach page + selection. Also add pixel ratio diagnostics.
                 formData.append('page', (currentPage - 1).toString());
                 formData.append('x', x_rel.toString());
                 formData.append('y', y_rel.toString());
                 formData.append('width', width_rel.toString());
                 formData.append('height', height_rel.toString());
                 formData.append('scale_factor', currentScale.toString());
+
+                // Compute pixel ratio for the active page's canvas (diagnostic)
+                try {
+                    const pageDiv = pdfContainer.querySelector(`.pdf-page[data-page-number="${currentPage}"]`);
+                    const canvasForPage = pageDiv ? pageDiv.querySelector('canvas[data-page-number]') : null;
+                    const pixelRatio = canvasForPage ? (canvasForPage.width / canvasForPage.clientWidth) : window.devicePixelRatio || 1;
+                    formData.append('pixel_ratio', pixelRatio.toString());
+                    console.log('CAPTURE_DEBUG', { currentPage, x_rel, y_rel, width_rel, height_rel, currentScale, pixelRatio });
+                } catch (e) {
+                    console.warn('CAPTURE_DEBUG failed to compute pixel ratio', e);
+                }
                 formData.append('format', 'PNG');
 
                 console.log("Envoi des données au serveur...");
@@ -849,21 +865,129 @@
 
         selectionOverlay.addEventListener('mouseup', () => {
             if (!isSelecting) return;
-            
-            selectionStart = { x: 0, y: 0 };
-            if (currentSelection.width > 10 && currentSelection.height > 10) {
-                console.log("Sélection terminée:", currentSelection);
-                stopSelection();
-            } else {
-                console.log("Sélection trop petite, annulation");
-                selectionRect.style.display = 'none';
-                currentSelection = { x: 0, y: 0, width: 0, height: 0 };
-                stopSelection();
-            }
-        });
 
+            // Récupérer le canvas de la page active pour calculer le ratio réel
+            const activeCanvas = document.querySelector(`canvas[data-page-number="${currentPage}"]`);
+
+            if (currentSelection.width > 10 && currentSelection.height > 10 && activeCanvas) {
+                const rect = activeCanvas.getBoundingClientRect();
+                
+                // Ratio entre les pixels internes du canvas et les pixels affichés à l'écran
+                const scaleFactorX = activeCanvas.width / rect.width;
+                const scaleFactorY = activeCanvas.height / rect.height;
+
+                // Calcul des coordonnées relatives au canvas (en pixels réels de dessin)
+                const x_canvas = (currentSelection.x - currentPageLeft) * 2*scaleFactorX;
+                const y_canvas = (currentSelection.y - currentPageTop) * 2*scaleFactorY;
+                const w_canvas = currentSelection.width * 2*scaleFactorX;
+                const h_canvas = currentSelection.height * 2*scaleFactorY;
+
+                const newRegion = {
+                    id: Date.now(),
+                    // PyMuPDF côté serveur commence à 0, donc on retire 1
+                    page: currentPage - 1, 
+                    // Conversion finale en points PDF (72 DPI)
+                    x: x_canvas / currentScale,
+                    y: y_canvas / currentScale,
+                    width: w_canvas / currentScale,
+                    height: h_canvas / currentScale
+                };
+
+                regions.push(newRegion);
+                updateRegionsListUI();
+
+                selectionRect.style.borderColor = "#2ecc71";
+                setTimeout(() => {
+                    selectionRect.style.display = 'none';
+                    selectionRect.style.borderColor = "#ff4757";
+                }, 300);
+            } else {
+                selectionRect.style.display = 'none';
+            }
+
+            selectionStart = { x: 0, y: 0 };
+            currentSelection = { x: 0, y: 0, width: 0, height: 0 };
+        });
+        
+        function updateRegionsListUI() {
+            const listContainer = document.getElementById('regionsListContainer');
+            const list = document.getElementById('regionsList');
+            
+            listContainer.style.display = 'block';
+            list.innerHTML = ''; 
+
+            regions.forEach((reg, index) => {
+                const item = document.createElement('div');
+                item.style.cssText = "display:flex; justify-content:space-between; align-items:center; padding:5px; border-bottom:1px solid #ddd; font-size:12px; color:black;";
+                item.innerHTML = `
+                    <span>#${index + 1} (Page ${reg.page + 1})</span>
+                    <button onclick="deleteRegion(${reg.id})" style="color:red; border:none; background:none; cursor:pointer; font-weight:bold; margin-left:10px;">✕</button>
+                `;
+                list.appendChild(item);
+            });
+
+            // Active le bouton "Capturer tout" si on a au moins une région
+            if (captureAllBtn) {
+                captureAllBtn.disabled = regions.length === 0;
+                captureAllBtn.classList.toggle('btn-disabled', regions.length === 0);
+            }
+        }
+
+        // Pour pouvoir supprimer une zone si on s'est trompé
+        window.deleteRegion = function(id) {
+            regions = regions.filter(r => r.id !== id);
+            updateRegionsListUI();
+        };
         // --- Autres gestionnaires ---
         
+        async function captureAllRegions() {
+            if (regions.length === 0) {
+                alert("Aucune zone sélectionnée à capturer.");
+                return;
+            }
+
+            try {
+                captureAllBtn.textContent = '⏳ Création du ZIP...';
+                captureAllBtn.disabled = true;
+
+                const formData = new FormData();
+                formData.append('file', currentPDFFile);
+                
+                // On envoie le tableau des régions sous forme de chaîne JSON
+                // Le serveur devra parser cette liste pour traiter chaque zone
+                formData.append('regions', JSON.stringify(regions));
+
+                console.log("Envoi de " + regions.length + " régions au serveur...");
+
+                const response = await fetch('/api/capture_all_regions', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `captures_${Date.now()}.zip`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    alert("ZIP téléchargé avec succès !");
+                } else {
+                    const error = await response.json();
+                    alert("Erreur serveur : " + error.error);
+                }
+            } catch (error) {
+                console.error("Erreur lors de la capture groupée:", error);
+                alert("Erreur réseau ou serveur.");
+            } finally {
+                captureAllBtn.textContent = '📦 Capturer tout (ZIP)';
+                captureAllBtn.disabled = false;
+            }
+        }
+
+
         selectBtn.addEventListener('click', () => {
             if (isSelecting) {
                 stopSelection();
@@ -1053,7 +1177,7 @@
         // Keep activeFrame positioned on resize without re-rendering if present
         window.addEventListener('resize', () => {
             if (activeFrame && currentPage) {
-                const pageDiv = pdfContainer.querySelector(`.pdf-page[data-page="${currentPage}"]`);
+                const pageDiv = pdfContainer.querySelector(`.pdf-page[data-page-number="${currentPage}"]`);
                 if (pageDiv) {
                     currentPageTop = pageDiv.offsetTop || 0;
                     currentPageLeft = pageDiv.offsetLeft || 0;

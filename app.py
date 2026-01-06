@@ -1874,6 +1874,13 @@ def api_capture_region():
             display_scale = float(scale_factor) # <-- NOUVEAU
         except ValueError as ve:
             return jsonify({'error': f'Invalid coordinate values: {str(ve)}'}), 400
+        # Diagnostic log: print received parameters to server console for debugging
+        try:
+            print(f"[DEBUG capture_region] page={page_num}, x={x_pos}, y={y_pos}, width={region_width}, height={region_height}, display_scale={display_scale}")
+            # also print the raw form for completeness
+            print(f"[DEBUG form] {dict(request.form)}")
+        except Exception:
+            pass
         
         # Read PDF file
         pdf_bytes = file.read()
@@ -1993,6 +2000,7 @@ def capture_multiple_regions():
         return jsonify({'error': str(e)}), 500
 
 
+
 def extract_pdf_region(pdf_bytes, page_num, x_pixels, y_pixels, width_pixels, height_pixels, 
                      display_scale, format='PNG'): # viewer_width/height retirés
     """
@@ -2067,7 +2075,6 @@ def extract_pdf_region(pdf_bytes, page_num, x_pixels, y_pixels, width_pixels, he
         if pdf_document:
             pdf_document.close()
 
-
 @app.route('/api/img_to_pdf', methods=['POST'])
 def img_to_pdf_action():
     """Convert an image (PNG, JPG) to PDF."""
@@ -2140,6 +2147,52 @@ def compress_pdf():
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+def generate_preview_image(pdf_bytes, page_num=0, max_size=800):
+    """
+    Generate a preview image of a PDF page for display in the browser
+    
+    Args:
+        pdf_bytes: PDF file as bytes
+        page_num: Page number to preview
+        max_size: Maximum dimension of the preview image
+    
+    Returns:
+        Base64 encoded image data
+    """
+    try:
+        pdf_document = fitz.open(stream=pdf_bytes, filetype="pdf")
+        
+        if page_num >= len(pdf_document):
+            page_num = 0
+            
+        page = pdf_document[page_num]
+        
+        # Calculate scale to fit within max_size
+        rect = page.rect
+        scale_x = max_size / rect.width
+        scale_y = max_size / rect.height
+        scale = min(scale_x, scale_y, 1.0)  # Don't scale up beyond original
+        
+        mat = fitz.Matrix(scale, scale)
+        pix = page.get_pixmap(matrix=mat)
+        
+        # Convert to PIL Image
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        
+        # Convert to base64 for web display
+        img_bytes = io.BytesIO()
+        img.save(img_bytes, format='PNG')
+        img_bytes.seek(0)
+        
+        base64_img = base64.b64encode(img_bytes.read()).decode('utf-8')
+        
+        pdf_document.close()
+        
+        return f"data:image/png;base64,{base64_img}"
+        
+    except Exception as e:
+        raise Exception(f"Failed to generate preview: {str(e)}")
 
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
