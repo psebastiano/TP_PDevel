@@ -877,10 +877,10 @@
                 const scaleFactorY = activeCanvas.height / rect.height;
 
                 // Calcul des coordonnées relatives au canvas (en pixels réels de dessin)
-                const x_canvas = (currentSelection.x - currentPageLeft) * scaleFactorX;
-                const y_canvas = (currentSelection.y - currentPageTop) * scaleFactorY;
-                const w_canvas = currentSelection.width * scaleFactorX;
-                const h_canvas = currentSelection.height * scaleFactorY;
+                const x_canvas = (currentSelection.x - currentPageLeft) * 2*scaleFactorX;
+                const y_canvas = (currentSelection.y - currentPageTop) * 2*scaleFactorY;
+                const w_canvas = currentSelection.width * 2*scaleFactorX;
+                const h_canvas = currentSelection.height * 2*scaleFactorY;
 
                 const newRegion = {
                     id: Date.now(),
