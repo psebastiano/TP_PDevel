@@ -17,7 +17,7 @@ import zipfile
 from pdf2image import convert_from_path
 import io
 import math
-
+import fitz
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = tempfile.mkdtemp()
@@ -1470,35 +1470,6 @@ def page_number_action():
         traceback.print_exc()   # 🔥 سيظهر الخطأ الحقيقي في التيرمينال
         return jsonify({'error': 'Erreur serveur'}), 500
     
-@app.route('/api/pdf_info', methods=['POST'])
-def get_pdf_info():
-    """API endpoint to get PDF information"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'error': 'No file provided'}), 400
-        
-        file = request.files['file']
-        
-        if file.filename == '':
-            return jsonify({'error': 'No file selected'}), 400
-        
-        if not allowed_file(file.filename):
-            return jsonify({'error': 'File must be a PDF'}), 400
-        
-        pdf_bytes = file.read()
-        pdf_info = get_pdf_page_info(pdf_bytes)
-        
-        # Generate preview of first page
-        preview = generate_preview_image(pdf_bytes)
-        
-        return jsonify({
-            'success': True,
-            'pdf_info': pdf_info,
-            'preview': preview
-        })
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/capture_region', methods=['POST'])
 def api_capture_region():
