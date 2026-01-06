@@ -1,5 +1,7 @@
 import base64
 import json
+import traceback
+import uuid
 
 import mammoth
 from xhtml2pdf import pisa
@@ -258,6 +260,7 @@ def docx_to_pdf_action():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+
 @app.route('/api/pipeline', methods=['POST'])
 def pipeline_action():
     if 'file' not in request.files:
@@ -312,6 +315,362 @@ def pipeline_action():
         import traceback
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
+
+
+def apply_action(node, input_path, output_path):
+    """Exécute une action unitaire sur un fichier"""
+    action_type = node.get('type')
+    params = node.get('params', {})
+
+    # Lecture générique
+    try:
+        reader = PdfReader(input_path)
+    except:
+        # Si le fichier n'est pas un PDF (ex: après conversion docx), on gère au cas par cas
+        reader = None
+
+    writer = PdfWriter()
+
+    if action_type == 'rotate':
+        angle = int(params.get('angle', 90))
+        for page in reader.pages:
+            page.rotate(angle)
+            writer.add_page(page)
+        with open(output_path, 'wb') as f:
+            writer.write(f)
+
+    elif action_type == 'protect':
+        password = params.get('password', '123456')
+        for page in reader.pages: writer.add_page(page)
+        writer.encrypt(password)
+        with open(output_path, 'wb') as f:
+            writer.write(f)
+
+    elif action_type == 'watermark':
+        text = params.get('text', 'CONFIDENTIEL')
+        # Création d'un filigrane temporaire (simplifié pour l'exemple)
+        if len(reader.pages) > 0:
+            p = reader.pages[0]
+            wm_path = output_path + "_temp_wm.pdf"
+            c = canvas.Canvas(wm_path, pagesize=(float(p.mediabox.width), float(p.mediabox.height)))
+            c.setFont("Helvetica-Bold", 60)
+            c.setFillColor(colors.grey, alpha=0.5)
+            c.drawCentredString(float(p.mediabox.width) / 2, float(p.mediabox.height) / 2, text)
+            c.save()
+
+            wm_reader = PdfReader(wm_path)
+            for page in reader.pages:
+                page.merge_page(wm_reader.pages[0])
+                writer.add_page(page)
+            if os.path.exists(wm_path): os.remove(wm_path)
+        else:
+            for page in reader.pages: writer.add_page(page)
+        with open(output_path, 'wb') as f:
+            writer.write(f)
+
+    elif action_type == 'pdf-to-docx':
+        # Conversion qui change l'extension
+        docx_out = output_path.replace('.pdf', '.docx')
+        cv = Converter(input_path)
+        cv.convert(docx_out, start=0, end=None)
+        cv.close()
+        # On renomme pour que la suite du pipeline trouve le fichier au chemin attendu "output_path"
+        # Astuce : Si l'étape d'après attend un PDF, ça plantera, mais c'est logique.
+        if os.path.exists(docx_out):
+            if os.path.exists(output_path): os.remove(output_path)
+            os.rename(docx_out, output_path)
+
+    elif action_type == 'split':
+        # Le split est spécial, il ne génère pas UN fichier de sortie ici,
+        # mais la logique de graphe va gérer les deux fichiers.
+        # Cette fonction ne fait rien pour le split, voir 'process_graph_node'
+        pass
+
+    else:
+        # Action inconnue ou simple passe-plat
+        if reader:
+            for p in reader.pages: writer.add_page(p)
+            with open(output_path, 'wb') as f:
+                writer.write(f)
+
+
+def process_graph_node(current_file, node_id, nodes, connections, results_collector):
+    node = nodes.get(node_id)
+    if not node: return
+
+    unique_suffix = uuid.uuid4().hex[:6]
+    output_path = os.path.join(app.config['UPLOAD_FOLDER'], f"proc_{node_id}_{unique_suffix}.pdf")
+
+    print(f"--- Traitement noeud {node_id} ({node['type']}) ---")
+
+    # --- ACTION : SPLIT (DIVISER) ---
+    if node['type'] == 'split':
+        split_page = int(node['params'].get('splitPage', 1))
+        try:
+            reader = PdfReader(current_file)
+            total = len(reader.pages)
+            split_page = max(1, min(split_page, total))
+
+            # Partie 1
+            p1 = output_path.replace('.pdf', '_p1.pdf')
+            w1 = PdfWriter()
+            for i in range(split_page): w1.add_page(reader.pages[i])
+            with open(p1, 'wb') as f:
+                w1.write(f)
+
+            # Partie 2
+            p2 = output_path.replace('.pdf', '_p2.pdf')
+            w2 = PdfWriter()
+            for i in range(split_page, total): w2.add_page(reader.pages[i])
+            with open(p2, 'wb') as f:
+                w2.write(f)
+
+            # Routage
+            has_child = False
+            for conn in connections:
+                if conn['source'] == node_id:
+                    has_child = True
+                    if conn['sourceHandle'] == 'output_1':  # Haut
+                        process_graph_node(p1, conn['target'], nodes, connections, results_collector)
+                    elif conn['sourceHandle'] == 'output_2':  # Bas
+                        process_graph_node(p2, conn['target'], nodes, connections, results_collector)
+
+            if not has_child:
+                results_collector.append((p1, f"split_haut_{unique_suffix}.pdf"))
+                results_collector.append((p2, f"split_bas_{unique_suffix}.pdf"))
+
+        except Exception as e:
+            print(f"Erreur Split: {e}")
+            traceback.print_exc()
+        return
+
+    # --- ACTIONS STANDARDS ---
+    try:
+        reader = PdfReader(current_file)
+        writer = PdfWriter()
+
+        if node['type'] == 'rotate':
+            angle = int(node['params'].get('angle', 90))
+            for page in reader.pages:
+                page.rotate(angle)
+                writer.add_page(page)
+            with open(output_path, 'wb') as f:
+                writer.write(f)
+
+        elif node['type'] == 'protect':
+            pwd = node['params'].get('password', '1234')
+            for page in reader.pages: writer.add_page(page)
+            writer.encrypt(pwd)
+            with open(output_path, 'wb') as f:
+                writer.write(f)
+
+        # --- ACTION : SIGNATURE (NOUVEAU) ---
+        elif node['type'] == 'sign':
+            # Récupération du Base64 de l'image
+            file_data = node['params'].get('fileData')
+            position = node['params'].get('position', 'bottom-right')
+
+            if file_data and ',' in file_data:
+                # 1. Sauvegarde temp de l'image
+                header, encoded = file_data.split(",", 1)
+                data = base64.b64decode(encoded)
+                sig_img_path = output_path + "_sig.png"
+                with open(sig_img_path, "wb") as f:
+                    f.write(data)
+
+                # 2. Application
+                img_obj = ImageReader(sig_img_path)
+
+                for i, page in enumerate(reader.pages):
+                    # On signe la dernière page seulement (comportement classique)
+                    if i == len(reader.pages) - 1:
+                        w, h = float(page.mediabox.width), float(page.mediabox.height)
+                        ov_path = output_path + "_overlay.pdf"
+                        c = canvas.Canvas(ov_path, pagesize=(w, h))
+
+                        # Taille signature (fixe 20% largeur page)
+                        sig_w = w * 0.20
+                        aspect = img_obj.getSize()[1] / img_obj.getSize()[0]
+                        sig_h = sig_w * aspect
+                        margin = 30
+
+                        if position == 'bottom-left':
+                            x, y = margin, margin
+                        elif position == 'bottom-center':
+                            x, y = (w - sig_w) / 2, margin
+                        else:
+                            x, y = w - margin - sig_w, margin  # bottom-right
+
+                        c.drawImage(img_obj, x, y, width=sig_w, height=sig_h, mask='auto')
+                        c.save()
+
+                        ov_reader = PdfReader(ov_path)
+                        page.merge_page(ov_reader.pages[0])
+                        if os.path.exists(ov_path): os.remove(ov_path)
+
+                    writer.add_page(page)
+
+                if os.path.exists(sig_img_path): os.remove(sig_img_path)
+            else:
+                # Pas d'image fournie, on copie juste
+                for p in reader.pages: writer.add_page(p)
+
+            with open(output_path, 'wb') as f:
+                writer.write(f)
+
+        elif node['type'] == 'watermark':
+            txt = node['params'].get('text', 'COPY')
+            if len(reader.pages) > 0:
+                p = reader.pages[0]
+                wm_path = output_path + "_wm.pdf"
+                create_text_watermark(txt, wm_path, float(p.mediabox.width), float(p.mediabox.height))
+                wm_reader = PdfReader(wm_path)
+                wm_page = wm_reader.pages[0]
+                for page in reader.pages:
+                    page.merge_page(wm_page)
+                    writer.add_page(page)
+                if os.path.exists(wm_path): os.remove(wm_path)
+            else:
+                for p in reader.pages: writer.add_page(p)
+            with open(output_path, 'wb') as f:
+                writer.write(f)
+
+        elif node['type'] == 'pdf-to-docx':
+            docx = output_path.replace('.pdf', '.docx')
+            cv = Converter(current_file)
+            cv.convert(docx, start=0, end=None)
+            cv.close()
+            output_path = docx
+
+        else:
+            # Passe-plat
+            for p in reader.pages: writer.add_page(p)
+            with open(output_path, 'wb') as f:
+                writer.write(f)
+
+    except Exception as e:
+        print(f"Erreur Action {node['type']}: {e}")
+        traceback.print_exc()
+        return
+
+    # Suite du graphe
+    next_conns = [c for c in connections if c['source'] == node_id]
+    if not next_conns:
+        ext = '.docx' if 'docx' in output_path else '.pdf'
+        fname = f"result_{node['type']}_{unique_suffix}{ext}"
+        results_collector.append((output_path, fname))
+    else:
+        for conn in next_conns:
+            process_graph_node(output_path, conn['target'], nodes, connections, results_collector)
+
+
+@app.route('/api/pipeline_drawflow', methods=['POST'])
+def pipeline_drawflow_exec():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Fichier manquant'}), 400
+
+        print("Reception requête Drawflow...")
+        raw_json = request.form.get('drawflow_data')
+        if not raw_json: return jsonify({'error': 'JSON manquant'}), 400
+
+        data = json.loads(raw_json)
+        nodes_raw = data['drawflow']['Home']['data']
+
+        nodes_dict = {}
+        edges_list = []
+        all_targets = set()
+
+        for nid_str, n_data in nodes_raw.items():
+            nid = int(nid_str)
+            nodes_dict[nid] = {'type': n_data['name'], 'params': n_data.get('data', {})}
+
+            for out_name, out_data in n_data.get('outputs', {}).items():
+                for conn in out_data.get('connections', []):
+                    edges_list.append({
+                        'source': nid,
+                        'target': int(conn['node']),
+                        'sourceHandle': out_name  # "output_1" ou "output_2"
+                    })
+                    all_targets.add(int(conn['node']))
+
+        # Sauvegarde Source
+        file = request.files['file']
+        root_path = os.path.join(app.config['UPLOAD_FOLDER'], f"root_{uuid.uuid4().hex}.pdf")
+        file.save(root_path)
+
+        start_nodes = [nid for nid in nodes_dict.keys() if nid not in all_targets]
+        if not start_nodes: return jsonify({'error': 'Reliez au moins un bloc !'}), 400
+
+        results = []
+        for start_id in start_nodes:
+            process_graph_node(root_path, start_id, nodes_dict, edges_list, results)
+
+        if not results:
+            return jsonify({'error': 'Aucun résultat généré.'}), 500
+
+        zip_name = f"Resultats_{uuid.uuid4().hex[:6]}.zip"
+        zip_path = os.path.join(app.config['UPLOAD_FOLDER'], zip_name)
+
+        with zipfile.ZipFile(zip_path, 'w') as z:
+            for path, name in results:
+                if os.path.exists(path): z.write(path, name)
+
+        return jsonify({'success': True, 'filename': zip_name, 'downloadName': 'Pipeline_Result.zip'})
+
+    except Exception as e:
+        print("ERREUR FATALE:")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+    
+@app.route('/api/pipeline_graph', methods=['POST'])
+def pipeline_graph_exec():
+    if 'file' not in request.files:
+        return jsonify({'error': 'Fichier manquant'}), 400
+
+    # Récupération des données du graphe
+    graph_data = json.loads(request.form.get('graph'))
+    nodes_list = graph_data.get('nodes', [])  # Liste [{id, type, data: {params...}}]
+    edges_list = graph_data.get('edges', [])  # Liste [{source, target, sourceHandle}]
+
+    # Transformation en dictionnaire pour accès rapide par ID
+    nodes_dict = {n['id']: {'type': n['type'], 'params': n['data']} for n in nodes_list}
+
+    # Sauvegarde du fichier source (Racine)
+    file = request.files['file']
+    root_filename = f"root_{uuid.uuid4().hex}.pdf"
+    root_path = os.path.join(app.config['UPLOAD_FOLDER'], root_filename)
+    file.save(root_path)
+
+    final_results = []  # Liste [(filepath, filename_for_zip)]
+
+    # Trouver le(s) nœud(s) de départ (ceux qui n'ont pas de source dans edges)
+    # Dans notre UI, l'utilisateur relie le bloc "START" (virtuel ou premier drop)
+    # Pour simplifier : on cherche les nœuds qui ne sont "target" d'aucun lien
+    targets = set(e['target'] for e in edges_list)
+    start_nodes = [nid for nid in nodes_dict.keys() if nid not in targets]
+
+    if not start_nodes:
+        return jsonify({'error': 'Aucun point de départ trouvé (cycle ?)'}), 400
+
+    # Lancer le traitement pour chaque branche racine
+    for start_id in start_nodes:
+        process_graph_node(root_path, start_id, nodes_dict, edges_list, final_results)
+
+    # Création du ZIP final
+    zip_name = f"Workflow_Result_{uuid.uuid4().hex[:6]}.zip"
+    zip_path = os.path.join(app.config['UPLOAD_FOLDER'], zip_name)
+
+    with zipfile.ZipFile(zip_path, 'w') as z:
+        for fpath, fname in final_results:
+            if os.path.exists(fpath):
+                z.write(fpath, fname)
+
+    return jsonify({
+        'success': True,
+        'filename': zip_name,
+        'downloadName': 'Resultats_Workflow.zip'
+    })
 
 
 def process_pipeline_step(action, input_path, output_path):
