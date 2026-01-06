@@ -123,6 +123,10 @@ def protect_interface():
 def pdf_to_jpeg_interface():
     return render_template('pdf_to_jpeg.html')
 
+@app.route('/tool/img_to_pdf')
+def img_to_pdf_interface():
+    return render_template('img_to_pdf.html')
+
 @app.route('/tool/page_number')
 def page_number_interface():
     return render_template('page_number.html')
@@ -2057,6 +2061,45 @@ def extract_pdf_region(pdf_bytes, page_num, x_pixels, y_pixels, width_pixels, he
     finally:
         if pdf_document:
             pdf_document.close()
+
+
+@app.route('/api/img_to_pdf', methods=['POST'])
+def img_to_pdf_action():
+    """Convert an image (PNG, JPG) to PDF."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'Aucun fichier fourni'}), 400
+
+    file = request.files['file']
+    if not file or not allowed_image(file.filename):
+        return jsonify({'error': 'Format image invalide (PNG, JPG requis)'}), 400
+
+    try:
+        timestamp = datetime.now().strftime('%H%M%S')
+        clean_name = secure_filename(file.filename)
+        
+        src_path = os.path.join(app.config['UPLOAD_FOLDER'], f"src_img_{timestamp}_{clean_name}")
+        file.save(src_path)
+        
+        output_filename = f"img_conv_{timestamp}_{os.path.splitext(clean_name)[0]}.pdf"
+        output_path = os.path.join(app.config['UPLOAD_FOLDER'], output_filename)
+        
+        # Convert image to PDF using ReportLab
+        img = ImageReader(src_path)
+        w, h = img.getSize()
+        
+        c = canvas.Canvas(output_path, pagesize=(w, h))
+        c.drawImage(src_path, 0, 0, width=w, height=h)
+        c.save()
+
+        return jsonify({
+            'success': True,
+            'filename': output_filename,
+            'downloadName': os.path.splitext(clean_name)[0] + ".pdf"
+        })
+
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': f"Erreur conversion : {str(e)}"}), 500
 
 
 if __name__ == '__main__':
