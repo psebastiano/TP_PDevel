@@ -184,6 +184,13 @@ def api_capture_region():
             display_scale = float(scale_factor) # <-- NOUVEAU
         except ValueError as ve:
             return jsonify({'error': f'Invalid coordinate values: {str(ve)}'}), 400
+        # Diagnostic log: print received parameters to server console for debugging
+        try:
+            print(f"[DEBUG capture_region] page={page_num}, x={x_pos}, y={y_pos}, width={region_width}, height={region_height}, display_scale={display_scale}")
+            # also print the raw form for completeness
+            print(f"[DEBUG form] {dict(request.form)}")
+        except Exception:
+            pass
         
         # Read PDF file
         pdf_bytes = file.read()
