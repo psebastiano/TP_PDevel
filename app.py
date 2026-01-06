@@ -134,6 +134,11 @@ def page_number_interface():
 @app.route('/screenshot')
 def screenshot_pdf():
     return render_template('pdf_screenshot.html')
+
+@app.route('/tool/compress')
+def compress_interface():
+    return render_template('compress.html')
+
 # --- ROUTES API ---
 
 @app.route('/upload', methods=['POST'])
@@ -2101,6 +2106,40 @@ def img_to_pdf_action():
         traceback.print_exc()
         return jsonify({'error': f"Erreur conversion : {str(e)}"}), 500
 
+@app.route('/api/compress', methods=['POST'])
+def compress_pdf():
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'Aucun fichier PDF'}), 400
+
+        file = request.files['file']
+
+        if not file.filename.lower().endswith('.pdf'):
+            return jsonify({'error': 'Format invalide'}), 400
+
+        input_path = tempfile.mktemp(suffix=".pdf")
+        output_path = tempfile.mktemp(suffix=".pdf")
+
+        file.save(input_path)
+
+        reader = PdfReader(input_path)
+        writer = PdfWriter()
+
+        for page in reader.pages:
+            page.compress_content_streams()
+            writer.add_page(page)
+
+        with open(output_path, "wb") as f:
+            writer.write(f)
+
+        return send_file(
+            output_path,
+            as_attachment=True,
+            download_name="compressed.pdf"
+        )
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)

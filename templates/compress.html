@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>Compresser un PDF</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: #f4f6f9;
+            padding: 40px;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .back-link {
+            display: inline-block;
+            margin-bottom: 20px;
+            color: #667eea;
+            text-decoration: none;
+            font-weight: bold;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 10px;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        /* Zone upload (PDF style) */
+        .upload-area {
+            border: 3px dashed #667eea;
+            border-radius: 15px;
+            padding: 40px;
+            text-align: center;
+            background: #f8f9ff;
+            cursor: pointer;
+            transition: 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .upload-area:hover {
+            background: #eef0ff;
+            border-color: #5a67d8;
+        }
+
+        .file-info {
+            margin-top: 20px;
+            text-align: center;
+            font-weight: bold;
+            color: #333;
+            display: none;
+        }
+
+        button.action-btn {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #5a67d8 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 1.1em;
+            cursor: pointer;
+            font-weight: 600;
+            margin-top: 20px;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+            display: none;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .download-zone {
+            text-align: center;
+            margin-top: 20px;
+            display: none;
+        }
+
+        .download-link {
+            background: #28a745;
+            color: white;
+            padding: 12px 25px;
+            text-decoration: none;
+            border-radius: 50px;
+            display: inline-block;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<a href="/" class="back-link">← Retour Accueil</a>
+
+<div class="container">
+    <h1>🗜️ Compresser un PDF</h1>
+    <p class="subtitle">
+        Réduisez la taille de vos fichiers PDF sans perdre la lisibilité.
+    </p>
+
+    <div class="upload-area" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <span style="font-size: 3em;">📄</span>
+        <h3>Cliquez ou glissez votre PDF ici</h3>
+        <input type="file" id="fileInput" accept=".pdf" style="display:none;">
+    </div>
+
+    <div id="fileInfo" class="file-info"></div>
+
+    <button id="processBtn" class="action-btn" disabled>
+        Compresser le PDF
+    </button>
+
+    <div id="loader" class="loader"></div>
+    <div id="result" class="download-zone"></div>
+</div>
+
+<script>
+    let currentFile = null;
+
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const processBtn = document.getElementById('processBtn');
+    const fileInfo = document.getElementById('fileInfo');
+    const loader = document.getElementById('loader');
+    const resultDiv = document.getElementById('result');
+
+    // Drag & Drop
+    ['dragenter','dragover','dragleave','drop'].forEach(evt => {
+        dropZone.addEventListener(evt, e => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
+    });
+
+    dropZone.addEventListener('dragenter', () => dropZone.style.background = '#eef0ff');
+    dropZone.addEventListener('dragleave', () => dropZone.style.background = '#f8f9ff');
+
+    dropZone.addEventListener('drop', e => handleFile(e.dataTransfer.files[0]));
+    fileInput.addEventListener('change', e => handleFile(e.target.files[0]));
+
+    function handleFile(file) {
+        if (!file) return;
+
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+            alert("Veuillez sélectionner un fichier PDF.");
+            return;
+        }
+
+        currentFile = file;
+        fileInfo.style.display = 'block';
+        fileInfo.innerText = `📄 Fichier prêt : ${file.name}`;
+        processBtn.disabled = false;
+        resultDiv.style.display = 'none';
+    }
+
+    processBtn.addEventListener('click', async () => {
+        if (!currentFile) return;
+
+        processBtn.disabled = true;
+        processBtn.innerText = "Compression en cours...";
+        loader.style.display = 'block';
+
+        const formData = new FormData();
+        formData.append('file', currentFile);
+
+        try {
+            const res = await fetch('/api/compress', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (res.ok) {
+                const blob = await res.blob();
+                const url = URL.createObjectURL(blob);
+
+                resultDiv.innerHTML = `
+                    <p style="color:green;font-weight:bold;margin-bottom:10px;">
+                        ✅ Compression terminée !
+                    </p>
+                    <a href="${url}" download="compressed.pdf" class="download-link">
+                        ⬇️ Télécharger le PDF compressé
+                    </a>
+                `;
+                resultDiv.style.display = 'block';
+                processBtn.style.display = 'none';
+            } else {
+                alert("Erreur lors de la compression.");
+                processBtn.disabled = false;
+                processBtn.innerText = "Compresser le PDF";
+            }
+        } catch (e) {
+            alert("Erreur serveur.");
+            processBtn.disabled = false;
+            processBtn.innerText = "Compresser le PDF";
+        } finally {
+            loader.style.display = 'none';
+        }
+    });
+</script>
+
+</body>
+</html>
